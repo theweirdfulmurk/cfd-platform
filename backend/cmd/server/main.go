@@ -16,7 +16,7 @@ import (
 func main() {
 	// Configuration
 	namespace := getEnv("K8S_NAMESPACE", "default")
-	port := getEnv("PORT", "8082")
+	port := getEnv("PORT", "8080")
 
 	// Initialize K8s client
 	k8sClient, err := k8s.NewClient()
