@@ -8,10 +8,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY *.go ./
+COPY . .
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o cfd-platform-backend .
+RUN cd cmd/server && CGO_ENABLED=0 GOOS=linux go build -o /app/server
 
 # Runtime stage
 FROM alpine:latest
