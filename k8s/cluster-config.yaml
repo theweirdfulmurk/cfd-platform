@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cfd-platform
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30080
+    hostPort: 8081
+    protocol: TCP
+  extraMounts:
+  - hostPath: /tmp/cfd-platform
+    containerPath: /tmp/cfd-platform

@@ -1,0 +1,49 @@
+** CalculiX Input File - Simple Beam Analysis
+** 
+** This is a simple example of a cantilever beam
+** under a point load at the free end
+
+** NODES
+*NODE, NSET=Nall
+1, 0.0, 0.0, 0.0
+2, 1.0, 0.0, 0.0
+3, 2.0, 0.0, 0.0
+4, 3.0, 0.0, 0.0
+5, 4.0, 0.0, 0.0
+6, 5.0, 0.0, 0.0
+
+** ELEMENTS
+*ELEMENT, TYPE=B31, ELSET=Eall
+1, 1, 2
+2, 2, 3
+3, 3, 4
+4, 4, 5
+5, 5, 6
+
+** BEAM SECTION
+*BEAM SECTION, ELSET=Eall, MATERIAL=Steel, SECTION=RECT
+0.1, 0.05
+0.0, 1.0, 0.0
+
+** MATERIAL
+*MATERIAL, NAME=Steel
+*ELASTIC
+210000, 0.3
+
+** BOUNDARY CONDITIONS
+*BOUNDARY
+1, 1, 6
+
+** STEP
+*STEP
+*STATIC
+*CLOAD
+6, 2, -1000.0
+
+** OUTPUT
+*NODE FILE
+U
+*EL FILE
+S
+
+*END STEP
