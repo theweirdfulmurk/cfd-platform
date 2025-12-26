@@ -176,23 +176,23 @@ function getStatusText(status) {
 async function downloadResults(jobId) {
     try {
         window.open(`${API_BASE}/results?id=${jobId}`, '_blank');
-        showNotification('📥 Загрузка результатов...', 'info');
+        showNotification('Загрузка результатов...', 'info');
     } catch (error) {
         console.error('Error downloading results:', error);
-        showNotification('❌ Ошибка загрузки результатов', 'error');
+        showNotification('Ошибка загрузки результатов', 'error');
     }
 }
 
 async function refreshJobs() {
     const btn = event.target;
     btn.disabled = true;
-    btn.textContent = '⏳ Обновление...';
+    btn.textContent = 'Обновление...';
     
     await loadJobs();
     
     setTimeout(() => {
         btn.disabled = false;
-        btn.textContent = '🔄 Обновить';
+        btn.textContent = 'Обновить';
     }, 500);
 }
 
