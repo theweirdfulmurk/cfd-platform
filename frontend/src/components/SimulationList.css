@@ -1,0 +1,47 @@
+.simulation-list {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.simulation-list h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: #f5f5f5;
+}
+
+th {
+  text-align: left;
+  padding: 0.75rem;
+  font-weight: 600;
+  color: #555;
+  font-size: 14px;
+}
+
+td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #eee;
+}
+
+tbody tr:hover {
+  background: #fafafa;
+}
+
+.simulation-list button {
+  background: #d32f2f;
+  padding: 0.25rem 0.75rem;
+  font-size: 12px;
+}
+
+.simulation-list button:hover {
+  background: #c62828;
+}

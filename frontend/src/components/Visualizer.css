@@ -1,0 +1,34 @@
+.visualizer {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-top: 1rem;
+}
+
+.viz-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.viz-header h3 {
+  color: #333;
+}
+
+.viz-container {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.viz-loading {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+}
+
+.viz-loading p {
+  margin: 0.5rem 0;
+}

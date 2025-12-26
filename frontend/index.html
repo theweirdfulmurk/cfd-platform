@@ -1,64 +1,12 @@
 <!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CFD/FEA Platform</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>CFD/FEA Computing Platform</h1>
-            <p>Облачная платформа для инженерных вычислений</p>
-        </header>
-
-        <main>
-            <section class="upload-section">
-                <h2>Запуск расчета</h2>
-                <form id="job-form">
-                    <div class="form-group">
-                        <label for="job-type">Тип расчета:</label>
-                        <select id="job-type" name="type" required>
-                            <option value="">Выберите тип</option>
-                            <option value="cfd">CFD - Вычислительная гидродинамика (OpenFOAM)</option>
-                            <option value="fea">FEA - Метод конечных элементов (CalculiX)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                    <label for="input-file">Входные данные:</label>
-                    <div class="file-upload">
-                        <input type="file" id="input-file" name="input" required>
-                        <label for="input-file" class="file-info" id="file-info">Файл не выбран</label>
-                    </div>
-                </div>
-
-                    <button type="submit" class="btn btn-primary">
-                        <span class="btn-text">Запустить расчет</span>
-                        <span class="btn-loader" style="display: none;"></span>
-                    </button>
-                </form>
-            </section>
-
-            <section class="jobs-section">
-                <div class="section-header">
-                    <h2>Задания</h2>
-                    <button class="btn btn-secondary" onclick="refreshJobs()">Обновить</button>
-                </div>
-                
-                <div id="jobs-list" class="jobs-list">
-                    <p class="empty-state">Нет заданий. Создайте первое задание выше.</p>
-                </div>
-            </section>
-        </main>
-
-        <footer>
-            <p>Прототип веб-платформы для запуска инженерных вычислений</p>
-            <p>OpenFOAM | CalculiX | Kubernetes</p>
-        </footer>
-    </div>
-
-    <script src="app.js"></script>
-</body>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

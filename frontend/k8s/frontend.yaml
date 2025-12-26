@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cfd-platform-frontend
+  namespace: cfd-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cfd-platform-frontend
+  template:
+    metadata:
+      labels:
+        app: cfd-platform-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: cfd-platform-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cfd-platform-frontend
+  namespace: cfd-platform
+spec:
+  type: NodePort
+  selector:
+    app: cfd-platform-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30000
