@@ -57,6 +57,7 @@ func main() {
 			r.Get("/", simHandler.List)
 			r.Get("/{simId}", simHandler.Get)
 			r.Delete("/{simId}", simHandler.Delete)
+			r.Get("/{simId}/results", simHandler.DownloadResults)
 
 			// Visualization routes nested under simulation
 			r.Get("/{simId}/visualizations", vizHandler.ListBySimulation)

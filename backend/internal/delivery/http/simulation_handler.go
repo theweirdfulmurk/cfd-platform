@@ -1,9 +1,12 @@
 package http
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/theweirdfulmurk/cfd-platform/internal/domain"
@@ -27,7 +30,7 @@ func (h *SimulationHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	name := r.FormValue("name")
 	simTypeStr := r.FormValue("type")
-	
+
 	if name == "" || simTypeStr == "" {
 		respondError(w, http.StatusBadRequest, "name and type are required")
 		return
@@ -99,4 +102,61 @@ func (h *SimulationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *SimulationHandler) DownloadResults(w http.ResponseWriter, r *http.Request) {
+	simID := chi.URLParam(r, "simId")
+
+	resultsPath := fmt.Sprintf("/results/%s", simID)
+
+	if _, err := os.Stat(resultsPath); os.IsNotExist(err) {
+		respondError(w, http.StatusNotFound, "results not found")
+		return
+	}
+
+	resultsPath = fmt.Sprintf("/results/%s", simID)
+
+	if _, err := os.Stat(resultsPath); os.IsNotExist(err) {
+		respondError(w, http.StatusNotFound, "results not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=results-%s.zip", simID))
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	var err error
+	err = filepath.Walk(resultsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(resultsPath, path)
+		if err != nil {
+			return err
+		}
+
+		zipFile, err := zipWriter.Create(relPath)
+		if err != nil {
+			return err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(zipFile, file)
+		return err
+	})
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create archive")
+	}
 }
