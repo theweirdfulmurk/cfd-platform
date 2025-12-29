@@ -30,7 +30,7 @@ export function SimulationList() {
     if (!confirm('Delete simulation?')) return;
     try {
       await simulationAPI.delete(id);
-      setSimulations(sims => sims.filter(s => s.id !== id));
+      setSimulations(sims => sims.filter(s => s.ID !== id));
     } catch (err) {
       alert('Failed to delete');
     }
@@ -57,17 +57,17 @@ export function SimulationList() {
           </thead>
           <tbody>
             {simulations.map(sim => (
-              <tr key={sim.id}>
-                <td>{sim.name}</td>
-                <td>{sim.type.toUpperCase()}</td>
+              <tr key={sim.ID}>
+                <td>{sim.Name}</td>
+                <td>{sim.Type.toUpperCase()}</td>
                 <td>
-                  <span className={`status status-${sim.status}`}>
-                    {sim.status}
+                  <span className={`status status-${sim.Status}`}>
+                    {sim.Status}
                   </span>
                 </td>
-                <td>{new Date(sim.createdAt).toLocaleString()}</td>
+                <td>{new Date(sim.CreatedAt).toLocaleString()}</td>
                 <td>
-                  <button onClick={() => handleDelete(sim.id)}>Delete</button>
+                  <button onClick={() => handleDelete(sim.ID)}>Delete</button>
                 </td>
               </tr>
             ))}

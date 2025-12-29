@@ -3,6 +3,23 @@ import { Simulation, Visualization } from '../types';
 const API_BASE = '/api';
 
 export const simulationAPI = {
+  async createWithFile(name: string, type: 'cfd' | 'fea', file: File): Promise<Simulation> {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('type', type);
+    formData.append('file', file);
+
+    const res = await fetch(`${API_BASE}/simulations`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to create simulation: ${res.statusText}`);
+    }
+    return res.json();
+  },
+
   async create(name: string, type: 'cfd' | 'fea', configPath: string): Promise<Simulation> {
     const res = await fetch(`${API_BASE}/simulations`, {
       method: 'POST',

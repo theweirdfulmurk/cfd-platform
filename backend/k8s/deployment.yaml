@@ -42,8 +42,9 @@ metadata:
   name: simulation-configs
   namespace: cfd-platform
 spec:
+  storageClassName: local-path
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
@@ -54,8 +55,9 @@ metadata:
   name: simulation-results
   namespace: cfd-platform
 spec:
+  storageClassName: local-path
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
@@ -87,6 +89,9 @@ spec:
           value: cfd-platform
         - name: PORT
           value: "8080"
+        volumeMounts:
+        - name: simulations
+          mountPath: /pvc
         resources:
           requests:
             cpu: 250m
@@ -94,6 +99,10 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+      volumes:
+      - name: simulations
+        persistentVolumeClaim:
+          claimName: simulation-configs
 ---
 apiVersion: v1
 kind: Service

@@ -1,7 +1,8 @@
 package http
 
 import (
-	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -17,26 +18,48 @@ func NewSimulationHandler(uc *usecase.SimulationUseCase) *SimulationHandler {
 	return &SimulationHandler{useCase: uc}
 }
 
-type createSimulationRequest struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	ConfigPath string `json:"configPath"`
-}
-
 func (h *SimulationHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var req createSimulationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	// Parse multipart form (max 100MB)
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		respondError(w, http.StatusBadRequest, "failed to parse form")
 		return
 	}
 
-	simType := domain.SimulationType(req.Type)
+	name := r.FormValue("name")
+	simTypeStr := r.FormValue("type")
+	
+	if name == "" || simTypeStr == "" {
+		respondError(w, http.StatusBadRequest, "name and type are required")
+		return
+	}
+
+	simType := domain.SimulationType(simTypeStr)
 	if simType != domain.SimTypeCFD && simType != domain.SimTypeFEA {
 		respondError(w, http.StatusBadRequest, "invalid simulation type")
 		return
 	}
 
-	sim, err := h.useCase.Create(req.Name, simType, req.ConfigPath)
+	// Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+
+	// Validate file
+	if err := ValidateSimulationFile(file, header, simType); err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("validation failed: %v", err))
+		return
+	}
+
+	// Reset file pointer after validation
+	if seeker, ok := file.(io.Seeker); ok {
+		seeker.Seek(0, 0)
+	}
+
+	// Create simulation with uploaded file
+	sim, err := h.useCase.CreateWithFile(name, simType, file, header.Filename)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -33,7 +33,7 @@ logs:
 
 # Development
 dev: docker-build kind-load deploy
-	@echo "Backend deployed at http://localhost:8082"
+	@echo "Backend deployed at http://localhost:8080"
 
 # Full setup from scratch
 setup: kind-create dev

@@ -31,10 +31,12 @@ func (m *SimulationManager) CreateJob(simID string, simType domain.SimulationTyp
 	switch simType {
 	case domain.SimTypeCFD:
 		image = "openfoam/openfoam8-paraview56"
-		command = []string{"/bin/bash", "-c", "cd /data && ./Allrun"}
+		command = []string{"/bin/bash", "-c",
+			"cd /pvc/simulations/" + configPath + " && tar -xzf *.tar.gz && ./Allrun"}
 	case domain.SimTypeFEA:
 		image = "calculix/ccx:latest"
-		command = []string{"/bin/bash", "-c", "ccx -i /data/input"}
+		command = []string{"/bin/bash", "-c", 
+			"mkdir -p /results/" + configPath + " && cp /pvc/simulations/" + configPath + "/input.inp /tmp/ && cd /tmp && ccx input && cp *.frd *.dat /results/" + configPath + "/"}
 	default:
 		return fmt.Errorf("unsupported simulation type: %s", simType)
 	}
@@ -52,16 +54,20 @@ func (m *SimulationManager) CreateJob(simID string, simType domain.SimulationTyp
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
+					SecurityContext: &corev1.PodSecurityContext{
+						FSGroup: int64Ptr(1000),
+					},
 					Containers: []corev1.Container{
 						{
-							Name:    "solver",
-							Image:   image,
-							Command: command,
+							Name:       "solver",
+							Image:      image,
+							Command:    command,
+							WorkingDir: "/pvc/simulations/" + configPath,
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "config",
-									MountPath: "/data",
-									SubPath:   configPath,
+									MountPath: "/pvc",
+									ReadOnly:  false,
 								},
 								{
 									Name:      "results",
@@ -70,12 +76,12 @@ func (m *SimulationManager) CreateJob(simID string, simType domain.SimulationTyp
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceMemory: resource.MustParse("4Gi"),
-									corev1.ResourceCPU:    resource.MustParse("2"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"), // было 4Gi
+									corev1.ResourceCPU:    resource.MustParse("500m"),  // было 2
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceMemory: resource.MustParse("8Gi"),
-									corev1.ResourceCPU:    resource.MustParse("4"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"), // было 8Gi
+									corev1.ResourceCPU:    resource.MustParse("1"),   // было 4
 								},
 							},
 						},
@@ -112,25 +118,30 @@ func (m *SimulationManager) CreateJob(simID string, simType domain.SimulationTyp
 }
 
 func (m *SimulationManager) GetJobStatus(simID string) (domain.SimulationStatus, error) {
-	job, err := m.clientset.BatchV1().Jobs(m.namespace).Get(
-		context.Background(),
-		fmt.Sprintf("sim-%s", simID),
-		metav1.GetOptions{},
-	)
-	if err != nil {
-		return "", err
-	}
+    job, err := m.clientset.BatchV1().Jobs(m.namespace).Get(
+        context.Background(),
+        fmt.Sprintf("sim-%s", simID),
+        metav1.GetOptions{},
+    )
+    if err != nil {
+        return "", err
+    }
 
-	if job.Status.Succeeded > 0 {
-		return domain.SimStatusCompleted, nil
-	}
-	if job.Status.Failed > 0 {
-		return domain.SimStatusFailed, nil
-	}
-	if job.Status.Active > 0 {
-		return domain.SimStatusRunning, nil
-	}
-	return domain.SimStatusPending, nil
+    // Проверь условия
+    for _, condition := range job.Status.Conditions {
+        if condition.Type == batchv1.JobComplete && condition.Status == corev1.ConditionTrue {
+            return domain.SimStatusCompleted, nil
+        }
+        if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
+            return domain.SimStatusFailed, nil
+        }
+    }
+
+    if job.Status.Active > 0 {
+        return domain.SimStatusRunning, nil
+    }
+
+    return domain.SimStatusPending, nil
 }
 
 func (m *SimulationManager) DeleteJob(simID string) error {
@@ -142,4 +153,8 @@ func (m *SimulationManager) DeleteJob(simID string) error {
 			PropagationPolicy: &propagationPolicy,
 		},
 	)
+}
+
+func int64Ptr(i int64) *int64 {
+	return &i
 }
