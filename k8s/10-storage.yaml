@@ -1,0 +1,28 @@
+---
+# PVCs for shared case data and results between launcher and worker pods
+# of an MPIJob. ReadWriteMany is required so that all ranks see the same
+# decomposed directory tree.
+#
+# For multi-node clusters the bound StorageClass must support RWX (e.g.
+# Longhorn, NFS, or any CSI driver with `accessModes: ReadWriteMany`).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: simulation-configs
+  namespace: cfd-platform
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: simulation-results
+  namespace: cfd-platform
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 50Gi

@@ -1,32 +1,32 @@
-import { Simulation, Visualization } from '../types';
+import { Simulation, SimulationType, SchedulerChoice, Visualization } from '../types';
 
 const API_BASE = '/api';
 
+export interface CreateSimulationParams {
+  name: string;
+  type: SimulationType;
+  numProcs: number;
+  scheduler: SchedulerChoice;
+  file: File;
+}
+
 export const simulationAPI = {
-  async createWithFile(name: string, type: 'cfd' | 'fea', file: File): Promise<Simulation> {
+  async createWithFile(params: CreateSimulationParams): Promise<Simulation> {
     const formData = new FormData();
-    formData.append('name', name);
-    formData.append('type', type);
-    formData.append('file', file);
+    formData.append('name', params.name);
+    formData.append('type', params.type);
+    formData.append('np', String(params.numProcs));
+    formData.append('scheduler', params.scheduler);
+    formData.append('file', params.file);
 
     const res = await fetch(`${API_BASE}/simulations`, {
       method: 'POST',
       body: formData,
     });
     if (!res.ok) {
-      const error = await res.json();
+      const error = await res.json().catch(() => ({}));
       throw new Error(error.error || `Failed to create simulation: ${res.statusText}`);
     }
-    return res.json();
-  },
-
-  async create(name: string, type: 'cfd' | 'fea', configPath: string): Promise<Simulation> {
-    const res = await fetch(`${API_BASE}/simulations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, type, configPath }),
-    });
-    if (!res.ok) throw new Error(`Failed to create simulation: ${res.statusText}`);
     return res.json();
   },
 

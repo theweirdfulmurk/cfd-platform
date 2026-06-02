@@ -9,7 +9,7 @@ export function HomePage() {
   return (
     <div className="home-page">
       <header>
-        <h1>CFD/FEA Platform</h1>
+        <h1>Topology-Aware MPI Scheduler Platform</h1>
       </header>
       
       <div className="content">

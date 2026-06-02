@@ -1,0 +1,72 @@
+---
+# Example MPIJob — submits an OpenFOAM motorbike case under the
+# topology-aware scheduler. Used to validate the deployment without
+# the backend; the backend produces an equivalent MPIJob programmatically.
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: openfoam-motorbike-example
+  namespace: cfd-platform
+  labels:
+    mpi-job-id: openfoam-motorbike-example
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+    schedulerName: topology-aware-scheduler
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            mpi-job-id: openfoam-motorbike-example
+            mpi-role: launcher
+        spec:
+          schedulerName: topology-aware-scheduler
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  cd /pvc/simulations/motorbike &&
+                  decomposePar -force &&
+                  mpirun -np 8 simpleFoam -parallel
+              volumeMounts:
+                - name: configs
+                  mountPath: /pvc
+                - name: results
+                  mountPath: /results
+          volumes:
+            - name: configs
+              persistentVolumeClaim:
+                claimName: simulation-configs
+            - name: results
+              persistentVolumeClaim:
+                claimName: simulation-results
+    Worker:
+      replicas: 8
+      template:
+        metadata:
+          labels:
+            mpi-job-id: openfoam-motorbike-example
+            mpi-role: worker
+        spec:
+          schedulerName: topology-aware-scheduler
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest
+              volumeMounts:
+                - name: configs
+                  mountPath: /pvc
+                - name: results
+                  mountPath: /results
+          volumes:
+            - name: configs
+              persistentVolumeClaim:
+                claimName: simulation-configs
+            - name: results
+              persistentVolumeClaim:
+                claimName: simulation-results

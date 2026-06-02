@@ -1,0 +1,26 @@
+---
+# MPI Operator installation pointer.
+#
+# Install the CRDs + controller by applying the upstream release manifest:
+#
+#   kubectl apply -f \
+#     https://raw.githubusercontent.com/kubeflow/mpi-operator/v0.4.0/deploy/v2beta1/mpi-operator.yaml
+#
+# It installs into the `mpi-operator` namespace and provides the
+# kubeflow.org/v2beta1 MPIJob CRD that our backend creates.
+#
+# This file is intentionally an empty placeholder so that `kubectl apply
+# -f k8s/` runs cleanly when the operator is already installed; the
+# README walks through the explicit install step before applying our
+# manifests.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mpi-operator-pointer
+  namespace: cfd-platform
+data:
+  install_command: |
+    kubectl apply -f https://raw.githubusercontent.com/kubeflow/mpi-operator/v0.4.0/deploy/v2beta1/mpi-operator.yaml
+  required_version: v0.4.0
+  crd_group: kubeflow.org
+  crd_version: v2beta1

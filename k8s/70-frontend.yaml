@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,18 +15,14 @@ spec:
         app: cfd-platform-frontend
     spec:
       containers:
-      - name: frontend
-        image: cfd-platform-frontend:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 80
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 200m
-            memory: 256Mi
+        - name: frontend
+          image: ghcr.io/theweirdfulmurk/cfd-platform-frontend:latest
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -37,6 +34,6 @@ spec:
   selector:
     app: cfd-platform-frontend
   ports:
-  - port: 80
-    targetPort: 80
-    nodePort: 30000
+    - port: 80
+      targetPort: 80
+      nodePort: 30080

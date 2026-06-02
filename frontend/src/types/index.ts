@@ -1,12 +1,16 @@
-export type SimulationType = 'cfd' | 'fea';
+export type SimulationType = 'openfoam' | 'openradioss' | 'code_aster';
 
 export type SimulationStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+export type SchedulerChoice = 'default' | 'topology-aware';
+
 export interface Simulation {
-  ID: string;           
-  Name: string;         
+  ID: string;
+  Name: string;
   Type: SimulationType;
   Status: SimulationStatus;
+  NumProcs: number;
+  SchedulerName: string;
   ResultPath: string;
   CreatedAt: string;
   StartedAt?: string;

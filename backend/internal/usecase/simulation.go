@@ -1,10 +1,14 @@
 package usecase
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,89 +28,103 @@ func NewSimulationUseCase(
 	return &SimulationUseCase{
 		repo:        repo,
 		k8sManager:  k8s,
-		storagePath: "/pvc/simulations", // монтируется из PVC
+		storagePath: "/pvc/simulations",
 	}
 }
 
+// CreateWithFile receives a validated .tar.gz upload, extracts it into the
+// shared PVC and creates an MPIJob via the k8s manager.
 func (uc *SimulationUseCase) CreateWithFile(
 	name string,
 	simType domain.SimulationType,
+	numProcs int,
+	schedulerName string,
 	file io.Reader,
 	filename string,
 ) (*domain.Simulation, error) {
 	simID := uuid.New().String()[:8]
 
-	// Создаём директорию для симуляции
 	simDir := filepath.Join(uc.storagePath, simID)
-	if err := os.MkdirAll(simDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create simulation directory: %w", err)
+	if err := os.MkdirAll(simDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create simulation dir: %w", err)
 	}
 
-	var destPath string
-	if simType == domain.SimTypeFEA {
-		destPath = filepath.Join(simDir, "input.inp")
-	} else {
-		destPath = filepath.Join(simDir, filename)
+	if err := extractTarGz(file, simDir); err != nil {
+		return nil, fmt.Errorf("extract archive: %w", err)
 	}
 
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file: %w", err)
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, file); err != nil {
-		return nil, fmt.Errorf("failed to save file: %w", err)
-	}
-
-	now := time.Now()
 	sim := &domain.Simulation{
-		ID:         simID,
-		Name:       name,
-		Type:       simType,
-		Status:     domain.SimStatusPending,
-		PodName:    fmt.Sprintf("sim-%s", simID),
-		ResultPath: fmt.Sprintf("results/%s", simID),
-		ConfigPath: simID, // путь в PVC
-		CreatedAt:  now,
+		ID:            simID,
+		Name:          name,
+		Type:          simType,
+		Status:        domain.SimStatusPending,
+		NumProcs:      numProcs,
+		SchedulerName: schedulerName,
+		PodName:       fmt.Sprintf("sim-%s", simID),
+		ResultPath:    fmt.Sprintf("results/%s", simID),
+		ConfigPath:    simID, // relative path inside the PVC
+		CreatedAt:     time.Now(),
 	}
 
-	// Создаём K8s Job
-	if err := uc.k8sManager.CreateJob(simID, simType, simID); err != nil {
-		return nil, fmt.Errorf("failed to create job: %w", err)
+	if err := uc.k8sManager.CreateJob(sim); err != nil {
+		return nil, fmt.Errorf("create MPIJob: %w", err)
 	}
-
 	if err := uc.repo.Create(sim); err != nil {
-		return nil, fmt.Errorf("failed to save simulation: %w", err)
+		return nil, fmt.Errorf("persist simulation: %w", err)
 	}
-
 	return sim, nil
 }
 
-func (uc *SimulationUseCase) Create(name string, simType domain.SimulationType, configPath string) (*domain.Simulation, error) {
-	simID := uuid.New().String()[:8]
-
-	now := time.Now()
-	sim := &domain.Simulation{
-		ID:         simID,
-		Name:       name,
-		Type:       simType,
-		Status:     domain.SimStatusPending,
-		PodName:    fmt.Sprintf("sim-%s", simID),
-		ResultPath: fmt.Sprintf("results/%s", simID),
-		ConfigPath: configPath,
-		CreatedAt:  now,
+// extractTarGz unpacks a .tar.gz stream into dstDir. Paths containing
+// `..` are rejected to prevent zip-slip.
+func extractTarGz(src io.Reader, dstDir string) error {
+	gzr, err := gzip.NewReader(src)
+	if err != nil {
+		return err
 	}
+	defer gzr.Close()
 
-	if err := uc.k8sManager.CreateJob(simID, simType, configPath); err != nil {
-		return nil, fmt.Errorf("failed to create job: %w", err)
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		// zip-slip guard: reject absolute paths and parent traversal.
+		clean := filepath.Clean(hdr.Name)
+		if filepath.IsAbs(clean) || hasParentTraversal(clean) {
+			return fmt.Errorf("refusing unsafe path in archive: %q", hdr.Name)
+		}
+		dst := filepath.Join(dstDir, clean)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return err
+			}
+			out, err := os.Create(dst)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+		}
 	}
+}
 
-	if err := uc.repo.Create(sim); err != nil {
-		return nil, fmt.Errorf("failed to save simulation: %w", err)
-	}
-
-	return sim, nil
+// hasParentTraversal reports whether any segment of a tar entry name is
+// "..". tar headers always use '/' as the separator regardless of host OS.
+func hasParentTraversal(p string) bool {
+	return slices.Contains(strings.Split(p, "/"), "..")
 }
 
 func (uc *SimulationUseCase) GetByID(simID string) (*domain.Simulation, error) {
@@ -114,18 +132,14 @@ func (uc *SimulationUseCase) GetByID(simID string) (*domain.Simulation, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Update status from k8s
-	status, err := uc.k8sManager.GetJobStatus(simID)
-	if err == nil && status != sim.Status {
+	if status, err := uc.k8sManager.GetJobStatus(simID); err == nil && status != sim.Status {
 		sim.Status = status
 		if status == domain.SimStatusCompleted {
 			now := time.Now()
 			sim.CompletedAt = &now
 		}
-		uc.repo.Update(sim)
+		_ = uc.repo.Update(sim)
 	}
-
 	return sim, nil
 }
 
@@ -134,29 +148,25 @@ func (uc *SimulationUseCase) List() ([]*domain.Simulation, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	for _, sim := range sims {
-		if status, err := uc.k8sManager.GetJobStatus(sim.ID); err == nil {
+		if status, err := uc.k8sManager.GetJobStatus(sim.ID); err == nil && status != sim.Status {
 			sim.Status = status
 			if status == domain.SimStatusCompleted {
 				now := time.Now()
 				sim.CompletedAt = &now
 			}
-			uc.repo.Update(sim)
+			_ = uc.repo.Update(sim)
 		}
 	}
-
 	return sims, nil
 }
 
 func (uc *SimulationUseCase) Delete(simID string) error {
 	if err := uc.k8sManager.DeleteJob(simID); err != nil {
-		return fmt.Errorf("failed to delete job: %w", err)
+		return fmt.Errorf("delete MPIJob: %w", err)
 	}
-
 	if err := uc.repo.Delete(simID); err != nil {
-		return fmt.Errorf("failed to delete simulation: %w", err)
+		return fmt.Errorf("delete simulation: %w", err)
 	}
-
 	return nil
 }

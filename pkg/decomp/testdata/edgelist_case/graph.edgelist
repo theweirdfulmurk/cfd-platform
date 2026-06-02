@@ -1,0 +1,9 @@
+# Edge-list fallback: 4 ranks, dense graph
+# Format: I J Weight (whitespace separated). Lines starting with # or % are ignored.
+4
+0 1 100
+0 2 50
+0 3 25
+1 2 80
+1 3 60
+2 3 90

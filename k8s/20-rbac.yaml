@@ -1,0 +1,36 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cfd-platform-backend
+  namespace: cfd-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cfd-platform-backend
+  namespace: cfd-platform
+rules:
+  # Standard pod/log access for status polling.
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  # MPIJob CRD from kubeflow/mpi-operator v2beta1 — created by the backend
+  # when the user submits a simulation.
+  - apiGroups: [kubeflow.org]
+    resources: [mpijobs]
+    verbs: [get, list, watch, create, delete, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cfd-platform-backend
+  namespace: cfd-platform
+subjects:
+  - kind: ServiceAccount
+    name: cfd-platform-backend
+    namespace: cfd-platform
+roleRef:
+  kind: Role
+  name: cfd-platform-backend
+  apiGroup: rbac.authorization.k8s.io

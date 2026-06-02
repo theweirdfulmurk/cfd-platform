@@ -1,0 +1,114 @@
+name: Build solver images
+
+# Builds the three solver images (OpenRadioss, OpenFOAM+mpiP, Code_Aster+mpiP)
+# and pushes them to ghcr.io/<owner>/cfd-platform-<solver>.
+#
+# Triggers:
+#   * push to main with changes under docker/**
+#   * manual dispatch (e.g. to rebuild a single solver from the UI)
+#   * pull_request — build only, don't push (validates Dockerfile changes)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "scheduler/**"
+      - "pkg/decomp/**"
+      - ".github/workflows/build-images.yml"
+  pull_request:
+    paths:
+      - "docker/**"
+      - "scheduler/**"
+      - "pkg/decomp/**"
+      - ".github/workflows/build-images.yml"
+  workflow_dispatch:
+    inputs:
+      solver:
+        description: "Which image to build (all|openradioss|openfoam|codeaster|scheduler)"
+        required: false
+        default: "all"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/cfd-platform
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        solver:
+          - name: openradioss
+            context: ./docker/openradioss
+            dockerfile: Dockerfile
+            # Long build (~45-60 min): compiles OpenMPI 4.1.2 + OpenRadioss
+            # + mpiP from source in a single image.
+          - name: openfoam
+            context: ./docker/openfoam
+            dockerfile: Dockerfile
+            # Thin layer (~5 min): adds mpiP onto opencfd/openfoam-default:2306.
+          - name: codeaster
+            context: ./docker/codeaster
+            dockerfile: Dockerfile
+            # Thin layer (~5 min): adds mpiP onto Code_Aster image.
+          - name: scheduler
+            context: .
+            dockerfile: scheduler/Dockerfile
+            # Build context = repo root so pkg/decomp replace works (~2 min).
+
+    steps:
+      - name: Check input filter
+        id: filter
+        run: |
+          want="${{ github.event.inputs.solver || 'all' }}"
+          if [ "$want" = "all" ] || [ "$want" = "${{ matrix.solver.name }}" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.filter.outputs.skip == 'false'
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        if: steps.filter.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.filter.outputs.skip == 'false' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tags
+        if: steps.filter.outputs.skip == 'false'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.solver.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        if: steps.filter.outputs.skip == 'false'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.solver.context }}
+          file: ${{ matrix.solver.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.solver.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.solver.name }}

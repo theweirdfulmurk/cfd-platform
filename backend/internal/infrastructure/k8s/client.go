@@ -1,25 +1,38 @@
 package k8s
 
 import (
+	"os"
+	"path/filepath"
+
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"os"
-	"path/filepath"
 )
 
-// NewClient creates a Kubernetes clientset
-func NewClient() (*kubernetes.Clientset, error) {
-	// Try in-cluster config first
-	config, err := rest.InClusterConfig()
+// NewClients creates both a typed clientset and a dynamic client. Dynamic
+// client is required to talk to the MPIJob CRD (kubeflow.org/v2beta1)
+// without pulling kubeflow types as a hard dependency.
+func NewClients() (*kubernetes.Clientset, dynamic.Interface, error) {
+	config, err := restConfig()
 	if err != nil {
-		// Fallback to kubeconfig
-		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			return nil, err
-		}
+		return nil, nil, err
 	}
+	typed, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	dyn, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	return typed, dyn, nil
+}
 
-	return kubernetes.NewForConfig(config)
+func restConfig() (*rest.Config, error) {
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		return cfg, nil
+	}
+	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }

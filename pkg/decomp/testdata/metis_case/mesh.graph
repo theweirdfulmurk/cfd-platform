@@ -1,0 +1,9 @@
+% METIS graph: 6 vertices, 6 edges, fmt=001 (edge weights present)
+% Edges: 1-2 w=4, 2-3 w=5, 3-4 w=6, 4-5 w=7, 5-6 w=8, 1-5 w=3
+6 6 001
+2 4 5 3
+1 4 3 5
+2 5 4 6
+3 6 5 7
+4 7 6 8 1 3
+5 8

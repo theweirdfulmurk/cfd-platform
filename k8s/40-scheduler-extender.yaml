@@ -1,0 +1,104 @@
+---
+# Topology-aware scheduler extender — implements POST /prioritize. The
+# kube-scheduler ConfigMap (50-scheduler-config.yaml) references this
+# service over plain HTTP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: topology-aware-scheduler-config
+  namespace: cfd-platform
+data:
+  # Format: one line per directed edge "nodeA nodeB rtt_ms".
+  # Loaded by the extender on startup; reverse direction is mirrored.
+  latency.yaml: |
+    # zone-a internal (single rack)
+    node-a-1 node-a-2 0.2
+    node-a-1 node-a-3 0.2
+    node-a-2 node-a-3 0.2
+    # zone-b internal
+    node-b-1 node-b-2 0.2
+    node-b-1 node-b-3 0.2
+    node-b-2 node-b-3 0.2
+    # zone-c internal
+    node-c-1 node-c-2 0.2
+    node-c-1 node-c-3 0.2
+    node-c-2 node-c-3 0.2
+    # cross-zone (single region, multi-AZ)
+    node-a-1 node-b-1 10
+    node-a-1 node-c-1 10
+    node-b-1 node-c-1 10
+    node-a-2 node-b-2 10
+    node-a-2 node-c-2 10
+    node-b-2 node-c-2 10
+    node-a-3 node-b-3 10
+    node-a-3 node-c-3 10
+    node-b-3 node-c-3 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: topology-aware-scheduler
+  namespace: cfd-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: topology-aware-scheduler
+  template:
+    metadata:
+      labels:
+        app: topology-aware-scheduler
+    spec:
+      containers:
+        - name: extender
+          image: ghcr.io/theweirdfulmurk/cfd-platform-scheduler:latest
+          ports:
+            - containerPort: 8090
+              name: http
+          env:
+            - name: LISTEN_ADDR
+              value: ":8090"
+            - name: LATENCY_PATH
+              value: /etc/scheduler/latency.yaml
+            - name: GRAPHS_DIR
+              value: /etc/scheduler/graphs
+          volumeMounts:
+            - name: config
+              mountPath: /etc/scheduler/latency.yaml
+              subPath: latency.yaml
+            - name: graphs
+              mountPath: /etc/scheduler/graphs
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: topology-aware-scheduler-config
+        - name: graphs
+          # The backend writes <jobID>.edgelist into this PVC after
+          # extracting solver decomposition (see scripts/extract_*).
+          persistentVolumeClaim:
+            claimName: simulation-configs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: topology-aware-scheduler
+  namespace: cfd-platform
+spec:
+  selector:
+    app: topology-aware-scheduler
+  ports:
+    - port: 80
+      targetPort: 8090
+      name: http

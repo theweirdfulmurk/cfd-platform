@@ -1,0 +1,44 @@
+---
+# KubeSchedulerConfiguration that adds our extender to the default
+# kube-scheduler profile. The cluster admin replaces the default
+# kube-scheduler ConfigMap with this one.
+#
+# On managed Kubernetes (Hetzner k3s, VK Cloud, Selectel) you typically
+# patch the kube-scheduler's static pod manifest or supply a custom
+# kubelet command-line argument referencing this file.
+#
+# For a kind / minikube dev cluster:
+#
+#   kubectl -n kube-system patch deployment kube-scheduler --patch \
+#     "$(cat k8s/50-scheduler-config.patch.yaml)"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-scheduler-config
+  namespace: kube-system
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    profiles:
+      - schedulerName: default-scheduler
+      - schedulerName: topology-aware-scheduler
+        plugins:
+          # The default in-tree plugin set; our extender adds scoring
+          # on top.
+          multiPoint:
+            enabled:
+              - name: PrioritySort
+              - name: NodeResourcesFit
+              - name: NodeAffinity
+              - name: PodTopologySpread
+    extenders:
+      - urlPrefix: "http://topology-aware-scheduler.cfd-platform.svc.cluster.local"
+        prioritizeVerb: "prioritize"
+        weight: 5
+        enableHTTPS: false
+        nodeCacheCapable: false
+        # Only call our extender for pods labelled `mpi-job-id`.
+        managedResources:
+          - name: "topology.scheduler/mpi-job"
+            ignoredByScheduler: false
