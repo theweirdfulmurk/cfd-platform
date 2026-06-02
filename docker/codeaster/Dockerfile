@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gfortran \
         gcc g++ \
         make \
-        git wget tar bzip2 ca-certificates \
+        git curl wget tar bzip2 ca-certificates \
         python3 python3-dev python3-pip python3-numpy python3-scipy \
         libopenmpi-dev openmpi-bin \
         libopenblas-dev liblapack-dev \
@@ -42,19 +42,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tk swig \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone code_aster source (pinned via ARG so CI runs are reproducible).
+# `make bootstrap` expects two SIBLING repos under one parent dir:
+#   /opt/code_aster/src/       — gitlab.com/codeaster/src
+#   /opt/code_aster/devtools/  — gitlab.com/codeaster/devtools
+# It will exit with "ERROR: devtools not found!" otherwise.
 ARG CODEASTER_REF=main
-RUN git clone --depth 1 --branch "${CODEASTER_REF}" \
-        https://gitlab.com/codeaster/src.git /opt/code_aster
+RUN mkdir -p /opt/code_aster \
+    && git clone --depth 1 --branch "${CODEASTER_REF}" \
+        https://gitlab.com/codeaster/src.git      /opt/code_aster/src \
+    && git clone --depth 1 \
+        https://gitlab.com/codeaster/devtools.git /opt/code_aster/devtools
 
 # `make bootstrap` runs the canonical EDF build sequence:
 #   * downloads and installs the prerequisites that aren't packaged
 #     (MED, MUMPS-parallel, parMETIS/PT-SCOTCH, MEDCoupling, MFront, …)
 #     under /opt/code_aster/install/
 #   * configures and builds code_aster itself with MPI support.
-# WAFCFG_TMPL = config/wafcfg/<basename>.py — we use the default which
-# the code_aster project tunes for Ubuntu LTS.
-WORKDIR /opt/code_aster
+WORKDIR /opt/code_aster/src
 RUN make bootstrap
 
 # --- mpiP profiler (shared library, ABI-matched to our OpenMPI 4.1.x) -------
@@ -84,11 +88,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/code_aster /opt/code_aster
+COPY --from=builder /opt/code_aster/src/install /opt/code_aster
 COPY --from=builder /opt/mpiP /opt/mpiP
 
-ENV PATH=/opt/code_aster/install/bin:$PATH
-ENV LD_LIBRARY_PATH=/opt/code_aster/install/lib:$LD_LIBRARY_PATH
+ENV PATH=/opt/code_aster/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/code_aster/lib:$LD_LIBRARY_PATH
 
 WORKDIR /work
 ENTRYPOINT ["/bin/bash"]
