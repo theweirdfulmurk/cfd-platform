@@ -1,67 +1,91 @@
-# NOTE 2026-06-02 — currently UNBUILDABLE.
+# Full Code_Aster build from source with OpenMPI 4.1.x + mpiP.
 #
-# The only publicly available Code_Aster MPI base image
-# (quay.io/tianyikillua/code_aster, tags v13/latest/master) is published
-# with Docker manifest schema 1 (vnd.docker.distribution.manifest.v1+prettyjws),
-# which buildx 0.12+ refuses to pull as of 2025. There is no maintained
-# upstream alternative that ships MPI-enabled code_aster as a schema-2
-# image at the time of writing (codeastersolver/codeaster-mpi was last
-# updated in 2019 and uses the same schema 1 format).
+# Replaces the previous thin-layer-on-tianyikillua approach (that path
+# is dead — the only public Code_Aster MPI base images are published in
+# Docker manifest schema 1, which modern buildx refuses to pull).
 #
-# Two ways forward (decide after OpenFOAM/OpenRadioss are green):
-#   (a) follow the OpenRadioss pattern — clone the code_aster source,
-#       compile it from scratch on top of debian:bookworm with
-#       OpenMPI 4.1.x and MUMPS, then bake mpiP in. ~1 day of work.
-#   (b) wait for upstream to republish with schema 2 (issue tracked at
-#       https://github.com/tianyikillua/code_aster_on_docker).
+# Strategy:
+#   1. ubuntu:22.04 base — gives us OpenMPI 4.1.x via apt (ABI-compatible
+#      with our OpenFOAM and OpenRadioss images, so libmpiP.so can be
+#      reused).
+#   2. clone code_aster source from the official upstream
+#      (https://gitlab.com/codeaster/src) and use its embedded
+#      `make bootstrap` target which downloads, configures and builds
+#      every prerequisite (MED, MUMPS, METIS, ParMETIS, SCOTCH, PT-SCOTCH,
+#      MEDCoupling, mpi4py, …) along with code_aster itself.
+#   3. build mpiP on the same OpenMPI 4.1.x ABI so that LD_PRELOAD
+#      profiling works without rebuilding code_aster.
 #
-# The Dockerfile below is the OLD thin-layer approach kept for reference.
-# It will not build in CI; the codeaster job is disabled in the GH Actions
-# matrix in .github/workflows/build-images.yml.
+# Expect ~60-90 min build on GH Actions ubuntu-latest the first time
+# (no cache); subsequent rebuilds reuse the bootstrap-output cache.
 
-# Thin profiling layer over the community Code_Aster MPI image.
-# Base image (quay.io/tianyikillua/code_aster, Ubuntu 18.04 + libopenmpi 2.1.x)
-# is preserved as is to avoid rebuilding code_aster from source; mpiP is built
-# against the same MPI inside this layer.
-#
-# Build:  docker build -f docker/codeaster/Dockerfile -t codeaster-mpip .
-#
-# NOTE: this image uses OpenMPI 2.1 (Ubuntu 18.04 default), NOT 4.1.2 like
-# the OpenFOAM and OpenRadioss images. The libmpiP.so produced here is
-# ABI-incompatible with the 4.1.2 builds, so we keep the build per-image.
-# If migrating Code_Aster to a 22.04 base later (so OpenMPI 4.1 is available)
-# the three images can share a single libmpiP.so artefact.
+FROM ubuntu:22.04 AS builder
 
-# -----------------------------------------------------------------------------
-# Stage 1 — builder: build libmpiP.so on the same OpenMPI as the base image.
-# -----------------------------------------------------------------------------
-FROM quay.io/tianyikillua/code_aster:v13 AS builder
+ARG DEBIAN_FRONTEND=noninteractive
 
-USER root
-
+# Toolchain + prerequisites that `make bootstrap` does NOT install itself.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential gfortran \
+        build-essential \
+        cmake \
+        gfortran \
+        gcc g++ \
+        make \
+        git wget tar bzip2 ca-certificates \
+        python3 python3-dev python3-pip python3-numpy python3-scipy \
         libopenmpi-dev openmpi-bin \
+        libopenblas-dev liblapack-dev \
+        libboost-numpy-dev libboost-python-dev \
+        libhdf5-openmpi-dev \
+        zlib1g-dev bison flex \
         binutils-dev libunwind-dev \
-        git ca-certificates \
+        pkg-config \
+        tk swig \
     && rm -rf /var/lib/apt/lists/*
 
+# Clone code_aster source (pinned via ARG so CI runs are reproducible).
+ARG CODEASTER_REF=main
+RUN git clone --depth 1 --branch "${CODEASTER_REF}" \
+        https://gitlab.com/codeaster/src.git /opt/code_aster
+
+# `make bootstrap` runs the canonical EDF build sequence:
+#   * downloads and installs the prerequisites that aren't packaged
+#     (MED, MUMPS-parallel, parMETIS/PT-SCOTCH, MEDCoupling, MFront, …)
+#     under /opt/code_aster/install/
+#   * configures and builds code_aster itself with MPI support.
+# WAFCFG_TMPL = config/wafcfg/<basename>.py — we use the default which
+# the code_aster project tunes for Ubuntu LTS.
+WORKDIR /opt/code_aster
+RUN make bootstrap
+
+# --- mpiP profiler (shared library, ABI-matched to our OpenMPI 4.1.x) -------
 WORKDIR /tmp
 RUN git clone --depth 1 https://github.com/LLNL/mpiP.git \
     && cd mpiP \
     && ./configure --prefix=/opt/mpiP --with-cc=mpicc --with-f77=mpif90 \
     && make shared \
-    && make install
+    && make install \
+    && rm -rf /tmp/mpiP
 
 # -----------------------------------------------------------------------------
-# Stage 2 — runtime: same base + libunwind + /opt/mpiP.
-# -----------------------------------------------------------------------------
-FROM quay.io/tianyikillua/code_aster:v13
+FROM ubuntu:22.04
 
-USER root
+ARG DEBIAN_FRONTEND=noninteractive
 
+# Runtime-only deps: openmpi runtime, hdf5 runtime, numpy, scipy.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        openmpi-bin libopenmpi3 \
+        libhdf5-openmpi-103 \
+        libopenblas0 liblapack3 \
+        python3 python3-numpy python3-scipy \
         libunwind8 \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=builder /opt/code_aster /opt/code_aster
 COPY --from=builder /opt/mpiP /opt/mpiP
+
+ENV PATH=/opt/code_aster/install/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/code_aster/install/lib:$LD_LIBRARY_PATH
+
+WORKDIR /work
+ENTRYPOINT ["/bin/bash"]
