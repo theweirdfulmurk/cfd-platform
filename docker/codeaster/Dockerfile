@@ -150,6 +150,11 @@ RUN hg clone -r ${VERSION_SCOTCH} http://hg.code.sf.net/p/prereq/scotch scotch_s
         make -j$(nproc) install prefix=${ASTER_DIRECTORY}/scotch_mpi
 
 # -------- MUMPS (seq + MPI) --------
+# `waf build` defaults to nproc parallel jobs; MUMPS 5.2.1_aster2 has
+# undeclared module dependencies, so two jobs can race on the same
+# <name>.mod0 → <name>.mod rename and one trips with
+#   "Fatal Error: Can't rename module file 'idll.mod0' to 'idll.mod'"
+# Force serial build with -j1 (slower but reliable).
 WORKDIR ${TEMP_DIRECTORY}
 RUN hg clone -r ${VERSION_MUMPS} http://hg.code.sf.net/p/prereq/mumps mumps_seq && \
     cp -r mumps_seq mumps_mpi && \
@@ -157,13 +162,13 @@ RUN hg clone -r ${VERSION_MUMPS} http://hg.code.sf.net/p/prereq/mumps mumps_seq 
         LIBPATH="${ASTER_DIRECTORY}/scotch_seq/lib ${ASTER_DIRECTORY}/metis/lib ${ASTER_DIRECTORY}/parmetis/lib" \
         INCLUDES="${ASTER_DIRECTORY}/scotch_seq/include ${ASTER_DIRECTORY}/metis/include ${ASTER_DIRECTORY}/parmetis/include" \
         python3 ./waf configure --prefix=${ASTER_DIRECTORY}/mumps_seq && \
-        python3 ./waf build && python3 ./waf install && \
+        python3 ./waf build -j1 && python3 ./waf install -j1 && \
     cd ../mumps_mpi && \
         LIBPATH="${ASTER_DIRECTORY}/scotch_mpi/lib ${ASTER_DIRECTORY}/metis/lib ${ASTER_DIRECTORY}/parmetis/lib" \
         INCLUDES="${ASTER_DIRECTORY}/scotch_mpi/include ${ASTER_DIRECTORY}/metis/include ${ASTER_DIRECTORY}/parmetis/include" \
         python3 ./waf configure --enable-mpi --enable-openmp --enable-metis --enable-parmetis --enable-scotch \
             --prefix=${ASTER_DIRECTORY}/mumps_mpi --install-tests && \
-        python3 ./waf build && python3 ./waf install
+        python3 ./waf build -j1 && python3 ./waf install -j1
 
 # -------- PETSc (with mumps + ML + hypre + superlu) --------
 WORKDIR ${TEMP_DIRECTORY}
