@@ -47,20 +47,20 @@ jobs:
         solver:
           - name: openradioss
             context: ./docker/openradioss
-            dockerfile: Dockerfile
+            dockerfile: ./docker/openradioss/Dockerfile
             # Long build (~45-60 min): compiles OpenMPI 4.1.2 + OpenRadioss
             # + mpiP from source in a single image.
           - name: openfoam
             context: ./docker/openfoam
-            dockerfile: Dockerfile
+            dockerfile: ./docker/openfoam/Dockerfile
             # Thin layer (~5 min): adds mpiP onto opencfd/openfoam-default:2306.
           - name: codeaster
             context: ./docker/codeaster
-            dockerfile: Dockerfile
+            dockerfile: ./docker/codeaster/Dockerfile
             # Thin layer (~5 min): adds mpiP onto Code_Aster image.
           - name: scheduler
             context: .
-            dockerfile: scheduler/Dockerfile
+            dockerfile: ./scheduler/Dockerfile
             # Build context = repo root so pkg/decomp replace works (~2 min).
 
     steps:

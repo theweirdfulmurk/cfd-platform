@@ -19,7 +19,6 @@ Thumbs.db
 backend/server
 backend/cmd/server/server
 scheduler/scheduler
-scheduler/cmd/*/*[!.]o
 
 # Test / coverage artefacts.
 *.test
