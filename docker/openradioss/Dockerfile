@@ -16,13 +16,18 @@ ARG OPENRADIOSS_REF=main
 # -----------------------------------------------------------------------------
 FROM rockylinux:9 AS builder
 
-RUN dnf install -y \
+# EL9 / Rocky 9 split a number of -devel packages out of the base repo:
+#   - binutils-devel, libstdc++-static -> CRB (CodeReady Builder)
+#   - libunwind-devel                  -> EPEL
+# Both repos must be enabled before installing the toolchain.
+RUN dnf install -y dnf-plugins-core epel-release \
+    && dnf config-manager --set-enabled crb \
+    && dnf install -y \
         gcc gcc-c++ gcc-gfortran \
         make cmake \
         git git-lfs \
         perl wget tar bzip2 which \
         binutils-devel libunwind-devel \
-        libstdc++-static \
         python3 \
     && dnf clean all
 

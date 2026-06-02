@@ -1,3 +1,24 @@
+# NOTE 2026-06-02 — currently UNBUILDABLE.
+#
+# The only publicly available Code_Aster MPI base image
+# (quay.io/tianyikillua/code_aster, tags v13/latest/master) is published
+# with Docker manifest schema 1 (vnd.docker.distribution.manifest.v1+prettyjws),
+# which buildx 0.12+ refuses to pull as of 2025. There is no maintained
+# upstream alternative that ships MPI-enabled code_aster as a schema-2
+# image at the time of writing (codeastersolver/codeaster-mpi was last
+# updated in 2019 and uses the same schema 1 format).
+#
+# Two ways forward (decide after OpenFOAM/OpenRadioss are green):
+#   (a) follow the OpenRadioss pattern — clone the code_aster source,
+#       compile it from scratch on top of debian:bookworm with
+#       OpenMPI 4.1.x and MUMPS, then bake mpiP in. ~1 day of work.
+#   (b) wait for upstream to republish with schema 2 (issue tracked at
+#       https://github.com/tianyikillua/code_aster_on_docker).
+#
+# The Dockerfile below is the OLD thin-layer approach kept for reference.
+# It will not build in CI; the codeaster job is disabled in the GH Actions
+# matrix in .github/workflows/build-images.yml.
+
 # Thin profiling layer over the community Code_Aster MPI image.
 # Base image (quay.io/tianyikillua/code_aster, Ubuntu 18.04 + libopenmpi 2.1.x)
 # is preserved as is to avoid rebuilding code_aster from source; mpiP is built

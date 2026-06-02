@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential gfortran \
         binutils-dev libunwind-dev \
         git ca-certificates \
-        wget \
+        wget python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
