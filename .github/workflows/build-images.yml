@@ -76,6 +76,30 @@ jobs:
             echo "skip=true"  >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Free disk space
+        # Heavy builds (codeaster `make bootstrap`, openradioss full source
+        # compile) hit the default ~14 GB free. This action reclaims ~30 GB
+        # by purging preinstalled toolchains we don't use (.NET, Haskell,
+        # Android SDK, Boost, ImageMagick, etc).
+        if: steps.filter.outputs.skip == 'false' && (matrix.solver.name == 'codeaster' || matrix.solver.name == 'openradioss')
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false  # keep ~10 GB of /opt/hostedtoolcache (we need bash/python)
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false  # we still pull base images
+          swap-storage: false   # set up explicitly in the next step
+
+      - name: Increase swap (codeaster only)
+        # `make bootstrap` builds MUMPS in parallel; gfortran can OOM on
+        # the 16 GB runner without swap headroom.
+        if: steps.filter.outputs.skip == 'false' && matrix.solver.name == 'codeaster'
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
       - name: Checkout
         if: steps.filter.outputs.skip == 'false'
         uses: actions/checkout@v4
