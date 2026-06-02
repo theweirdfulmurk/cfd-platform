@@ -32,6 +32,7 @@ RUN apt-get update -y && \
         --with-new-pkgs -o Dpkg::Options::="--force-confold" && \
     apt-get install -y \
         apt-utils cmake g++ gcc gfortran locales make mercurial wget \
+        autoconf automake libtool m4 \
         zlib1g-dev bison flex libopenblas-dev \
         python3-dev python3-numpy \
         libboost-numpy-dev libboost-python-dev \
@@ -79,6 +80,11 @@ RUN wget --no-check-certificate \
         https://deb.debian.org/debian/pool/main/m/med-fichier/med-fichier_4.1.0+repack.orig.tar.gz \
         -O med.tar.gz && \
     tar xf med.tar.gz -C . --strip-components 1 && rm med.tar.gz && \
+    # Debian +repack touched configure.ac / Makefile.am so their mtime is
+    # newer than the shipped Makefile.in → `make install` tries to re-run
+    # `automake-1.15` (not available; Ubuntu 18.04 ships 1.15.1). Force
+    # regeneration with the toolchain we DO have so timestamps line up.
+    autoreconf -fi && \
     F77=gfortran CXXFLAGS='-std=gnu++98' PYTHON=/usr/bin/python3 \
         ./configure --disable-mesgerr \
                     --with-hdf5=${ASTER_DIRECTORY}/hdf5 \
