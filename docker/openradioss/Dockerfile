@@ -71,6 +71,9 @@ RUN ./build_script.sh -arch=linux64_gf -mpi=ompi -mpi-root=/opt/openmpi -nt="$(n
 # --- mpiP profiler (shared library, ABI-matched to our OpenMPI) ---------------
 # libunwind is installed above, so we let mpiP use it for proper stack traces.
 WORKDIR /tmp
+# LOGNAME is read by mpiP's make-wrappers.py to stamp generated headers;
+# Docker doesn't set it by default, leading to KeyError mid-build.
+ENV LOGNAME=root
 RUN git clone --depth 1 https://github.com/LLNL/mpiP.git \
     && cd mpiP \
     && ./configure --prefix=/opt/mpiP --with-cc=mpicc --with-f77=mpif90 \

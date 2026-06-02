@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
+# LOGNAME is read by mpiP's make-wrappers.py to stamp generated headers;
+# Docker doesn't set it by default, leading to KeyError mid-build.
+ENV LOGNAME=root
 RUN git clone --depth 1 https://github.com/LLNL/mpiP.git \
     && cd mpiP \
     && ./configure --prefix=/opt/mpiP --with-cc=mpicc --with-f77=mpif90 \
