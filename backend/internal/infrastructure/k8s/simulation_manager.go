@@ -125,9 +125,10 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 							"schedulerName": sim.SchedulerName,
 							"containers": []any{
 								map[string]any{
-									"name":    "solver",
-									"image":   image,
-									"command": toAnySlice(solverCommand(sim.Type, sim.ConfigPath, np)),
+									"name":      "solver",
+									"image":     image,
+									"command":   toAnySlice(solverCommand(sim.Type, sim.ConfigPath, np)),
+									"resources": launcherResources(),
 									"volumeMounts": []any{
 										map[string]any{
 											"name":      "config",
@@ -155,10 +156,12 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 						},
 						"spec": map[string]any{
 							"schedulerName": sim.SchedulerName,
+							"affinity":      workerAntiAffinity(sim.ID),
 							"containers": []any{
 								map[string]any{
-									"name":  "solver",
-									"image": image,
+									"name":      "solver",
+									"image":     image,
+									"resources": workerResources(),
 									"volumeMounts": []any{
 										map[string]any{
 											"name":      "config",
@@ -183,6 +186,70 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 		context.Background(), mpiJob, metav1.CreateOptions{},
 	)
 	return err
+}
+
+// launcherResources sets the resource request for the MPIJob launcher pod.
+// The launcher only coordinates mpirun and does not do MPI work itself, so
+// 100m CPU / 256Mi memory is enough. No CPU limit is set — see workerResources()
+// for the rationale.
+func launcherResources() map[string]any {
+	return map[string]any{
+		"requests": map[string]any{
+			"cpu":    "100m",
+			"memory": "256Mi",
+		},
+	}
+}
+
+// workerResources sets resources for each MPI rank's worker pod.
+//
+// Critical: NO CPU LIMITS — only requests. Setting limits=requests puts the
+// pod into Guaranteed QoS, which triggers Linux CFS bandwidth throttling.
+// Xie (arXiv:2603.22691, 2026) quantified the effect for tightly-coupled MPI:
+// throttling on any single rank cascades through every MPI_Allreduce barrier
+// and inflates wall-clock time by up to 78× (35s -> 2738s on pitzDaily).
+//
+// Requests-only puts the pod in Burstable QoS, where the kernel uses cpu.weight
+// proportional sharing instead of hard quota: ranks can burst above their
+// request when peers are idle at MPI barriers, eliminating the throttle.
+func workerResources() map[string]any {
+	return map[string]any{
+		"requests": map[string]any{
+			"cpu":    "1",
+			"memory": "1Gi",
+		},
+	}
+}
+
+// workerAntiAffinity forces each MPI rank onto a separate node — one rank
+// per vCPU per node, no oversubscription, no HT sharing. This matches the
+// "clean experiment" topology used throughout the scheduling literature
+// (Xie 2026, Beltre 2019, Queens IPDRM 2016) and gives the scheduler real
+// placement choices over the available node pool.
+func workerAntiAffinity(jobID string) map[string]any {
+	return map[string]any{
+		"podAntiAffinity": map[string]any{
+			"requiredDuringSchedulingIgnoredDuringExecution": []any{
+				map[string]any{
+					"labelSelector": map[string]any{
+						"matchExpressions": []any{
+							map[string]any{
+								"key":      "mpi-job-id",
+								"operator": "In",
+								"values":   []any{jobID},
+							},
+							map[string]any{
+								"key":      "mpi-role",
+								"operator": "In",
+								"values":   []any{"worker"},
+							},
+						},
+					},
+					"topologyKey": "kubernetes.io/hostname",
+				},
+			},
+		},
+	}
 }
 
 func pvcVolumes() []any {
