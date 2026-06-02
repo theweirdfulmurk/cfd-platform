@@ -68,9 +68,15 @@ RUN wget --no-check-certificate \
     make -j$(nproc) install
 
 # -------- MED --------
+# Upstream URL (files.salome-platform.org/Salome/medfile/) now returns 403
+# for direct curl/wget — Salome restricted public hot-linking in 2024.
+# Fall back to the Debian science-team mirror which packages the same
+# 4.1.0 tarball as `med-fichier_4.1.0+repack.orig.tar.gz`. The `+repack`
+# suffix is purely Debian metadata stripping of non-free binaries; the
+# actual MED sources inside are identical.
 WORKDIR ${TEMP_DIRECTORY}/med
 RUN wget --no-check-certificate \
-        http://files.salome-platform.org/Salome/medfile/med-${VERSION_MED}.tar.gz \
+        https://deb.debian.org/debian/pool/main/m/med-fichier/med-fichier_4.1.0+repack.orig.tar.gz \
         -O med.tar.gz && \
     tar xf med.tar.gz -C . --strip-components 1 && rm med.tar.gz && \
     F77=gfortran CXXFLAGS='-std=gnu++98' PYTHON=/usr/bin/python3 \
