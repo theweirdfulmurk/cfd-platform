@@ -131,3 +131,15 @@ cd backend && go test ./...     # backend unit tests
 cd pkg/decomp && go test ./...  # parser tests (16/16)
 cd scheduler && go test ./...   # algorithm tests
 ```
+
+## Credits
+
+* The Code_Aster MPI Docker recipe under `docker/codeaster/` is adapted
+  from [aethereng/docker-codeaster](https://github.com/aethereng/docker-codeaster)
+  (no explicit licence; treated as GPL-3+ consistent with Code_Aster
+  upstream). The `Dockerfile.common.default` + `Dockerfile.mpi.default`
+  are merged into a single multi-stage `Dockerfile`; sidecar files
+  (`aster.wafcfg_scif_*.py`, `asrun.external_configuration.py`,
+  `dummy.env`, `add_version.sh`, `aster_pkginfo.pytmpl`, `run_testcases`)
+  are vendored verbatim.
+* Code_Aster itself is © EDF, released under GPL-3.
