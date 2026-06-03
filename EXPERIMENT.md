@@ -1,7 +1,12 @@
 # Эксперимент — методология
 
 Дизайн количественного эксперимента для защиты диплома.
-Состояние от 2026-06-02.
+Состояние от 2026-06-04.
+
+**Финальный план — Сценарий B**:
+- **Main experiment**: N=16, 3 решателя × 3 schedulers × 5 повторов = 45 запусков
+- **Scaling experiment**: N=32 на одном решателе (Yaris Coarse) × 3 schedulers × 5 повторов = 15 запусков
+- **Total: 60 запусков** на платформе [Vast.ai EPYC 9654 m:42009](CLUSTER.md)
 
 ## Главная гипотеза
 
@@ -95,7 +100,40 @@ placement effect нельзя надёжно измерить. **Использ�
 (378K elements) обусловлено научно подтверждённой минимальной
 гранулярностью distributed FEM workloads.
 
-### Почему N=16 ranks
+### Дополнительный scaling experiment N=32 (Yaris Coarse)
+
+В рамках Сценария B главный 3×3×5 эксперимент на N=16 дополняется
+**однонаправленным scaling experiment'ом** на N=32 для одного решателя —
+Yaris Coarse 378K elements.
+
+**Цель**: показать **тренд роста выигрыша MM vs random с числом ranks**,
+аналогично эмпирическому наблюдению Xie 2026 (3% на 4 ranks → 20% на
+16 ranks).
+
+**Дизайн**:
+```
+1 решатель (Yaris Coarse) × 3 schedulers × 5 повторов = 15 запусков
+N = 32 MPI ranks per job
+```
+
+**Granularity проверка** при N=32:
+- Yaris Coarse 378K / 32 = **11 812 elements/rank** — на нижней границе
+  efficient zone для explicit FEM (sweet spot 3K-10K, минимум 2K из
+  LS-DYNA Conference 2017). Всё ещё в работающем диапазоне.
+
+**Кластер при N=32**: 36 нод-контейнеров = 32 worker + 1 launcher + 3
+запас, разбитых на 3 зоны по 12 нод. cpuset закрепляет каждую ноду на
+1 phys core (всего 36 cores из 192 доступных на EPYC 9654).
+
+**Ожидаемый результат**: gain MM vs random на N=32 будет **выше** чем на
+N=16 (extrapolation Xie: ~30% на dense F-graph), демонстрируя positive
+scaling trend.
+
+**Зачем не делать N=32 для всех 3 решателей**: motorBike при N=32 даёт
+10 937 cells/rank — **ниже** OpenFOAM efficient threshold (20K min на
+fast interconnect). Эффект placement потонет в MPI overhead.
+
+### Почему N=16 ranks (главный baseline)
 
 Выбор N — критический для измеримости эффекта scheduler.
 
@@ -124,12 +162,23 @@ placement effect нельзя надёжно измерить. **Использ�
 | Решатель | Кейс | Размер | Плотность F | Откуда |
 |---|---|---|---|---|
 | OpenFOAM | `motorBike` (incompressible/simpleFoam) | ~350K cells | sparse (~0.1) | tutorial в `opencfd/openfoam-default:2306` |
-| OpenRadioss | [`Chrysler Neon 1M`](https://openradioss.atlassian.net/wiki/spaces/OPENRADIOSS/pages/47546369/HPC+Benchmark+Models#1M-Element-Neon-model) | 1M elements | medium (~0.3) | официальный HPC benchmark |
+| OpenRadioss | [`Yaris Coarse`](https://www.ccsa.gmu.edu/models/2010-toyota-yaris/) | 378K elements, 919 parts | medium (~0.3) | CCSA George Mason / NHTSA validation (tests 5677, 6221) |
 | Code_Aster | `perf009` (EDF reference) | 261K nodes, 803K dofs | dense (~0.7) | официальный perf testcase EDF |
 
-Все три — **iconic** в своих коммьюнити (для CFD это motorBike, для
-crash-analysis это Neon, для FEM это perf-серия EDF). Не custom mesh
-— защищается как «standard reference cases».
+Все три — **government / community standard**: motorBike — iconic OpenFOAM
+tutorial; **Yaris Coarse — NHTSA-validated crash benchmark из George Mason
+University CCSA** (используется в federal vehicle safety regulations США);
+perf009 — официальный EDF performance testcase. Не custom mesh — защищается
+как «standard reference cases с government / federal authority».
+
+**Почему не Chrysler Neon 1M**: исходно планировался, но затем заменён на
+Yaris Coarse 378K по двум причинам:
+1. **Размерная эквивалентность** с motorBike (378K vs 350K — clean
+   comparison по плотности F-графа).
+2. **NHTSA government validation** vs «OpenRadioss internal HPC benchmark»
+   — Yaris авторитетнее на защите.
+
+Подробное обоснование выбора — [BENCHMARKS.md](BENCHMARKS.md).
 
 ### Schedulers
 
@@ -144,22 +193,37 @@ crash-analysis это Neon, для FEM это perf-серия EDF). Не custom 
 ## Compute budget
 
 Эталонные времена выполнения см. в [BENCHMARKS.md](BENCHMARKS.md).
+Платформа — [Vast.ai m:42009 EPYC 9654](CLUSTER.md), $1.103/час.
 
-Один запуск на 16 ranks (зависит от выбранного варианта benchmark'ов):
+### Main experiment (N=16, 45 runs)
 
-| Решатель | Time/run (16 ranks) | Заметки |
+| Решатель | Time/run (16 ranks) | × 15 повторов × 3 schedulers |
 |---|---|---|
-| OpenFOAM motorBike (0.35M cells) | ~6 мин | tutorial-grade, sparse F |
-| OpenRadioss Cell Phone Drop (30K) | ~7 мин | tutorial-grade, medium F |
-| Code_Aster ssnv128a | ~10 мин | nonlinear+MUMPS, dense F |
-| **Среднее (Вариант C — рекомендуется)** | **~7-8 мин** | |
+| OpenFOAM motorBike (350K cells) | ~5 мин | ~3.75 ч |
+| OpenRadioss Yaris Coarse (378K elements) | ~1 ч | ~15 ч |
+| Code_Aster perf009 (803K dofs) | ~25 мин | ~6.25 ч |
+| **Compute total** | | **~25 ч** |
 
-45 запусков × 7-8 мин = **~6 ч чистого compute** + накладные на setup/отладку.
+### Scaling experiment (N=32, 15 runs Yaris)
 
-Полный uptime кластера: **~30 часов** включая отладку.
+| Решатель | Time/run (32 ranks) | × 5 повторов × 3 schedulers |
+|---|---|---|
+| OpenRadioss Yaris Coarse (378K elements) | ~40 мин (1.5× speedup vs N=16) | **~10 ч** |
 
-С учётом инфраструктуры (Timeweb VPS 24 phys cores):
-- 30 ч × 55 ₽/час = **~1 650 ₽** за весь эксперимент.
+### Total
+
+| Этап | Время | Стоимость |
+|---|---|---|
+| Main 45 runs (N=16) | 25 ч | $27.6 |
+| Scaling 15 runs (N=32 Yaris) | 10 ч | $11.0 |
+| Setup + smoke + debugging | 3-5 ч | $3.3-5.5 |
+| **Итого** | **38-40 ч** | **$42-44 (≈3 800-4 000 ₽)** |
+
+⚠️ Из $30 budget на Vast.ai хватает на **~27 часов**. Рекомендуется
+положить дополнительные **$15-20** для безопасности и buffer на отладку.
+
+Альтернатива при строгом $30 budget — только main experiment (N=16, 45
+runs), без scaling demo. Защищается через Xie 2026 reference.
 
 ## Статистическая методология
 
@@ -235,7 +299,7 @@ spec:
 | Network jitter | n=5 повторов на ячейку |
 | Различия кластеров между запусками | один кластер, фиксированный config, заранее warmup |
 | Auto-correlation последовательных запусков | warmup — первые **2 повтора отбрасываем** |
-| Subjective выбор кейсов | три **независимо признанных** benchmark (motorBike / Chrysler Neon / perf009) |
+| Subjective выбор кейсов | три **независимо признанных** benchmark (motorBike / Yaris Coarse CCSA-NHTSA / perf009 EDF) |
 | Cherry-picking результатов | весь сырой CSV публикуется вместе с дипломом |
 | Bootstrap nondeterminism | `random_state=42` в `scipy.stats.bootstrap()` (TODO) |
 

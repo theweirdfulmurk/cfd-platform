@@ -1,25 +1,39 @@
 # Эталонные времена benchmark'ов
 
 Данные из литературы для оценки compute budget эксперимента.
-Состояние на 2026-06-03.
+Состояние на 2026-06-04.
 
-## TL;DR
+## Финальный выбор кейсов (Сценарий B)
 
-Время выполнения трёх кандидатов на **16 MPI ranks** (обновлено
-после перехода с N=8 на N=16, см. [CLUSTER.md](CLUSTER.md)):
+| Решатель | Кейс | Размер | Time/run (N=16) | Time/run (N=32) |
+|---|---|---|---|---|
+| OpenFOAM | motorBike | 350K cells | **~5 мин** | — (granularity слабая) |
+| OpenRadioss | **Yaris Coarse** ⭐ | 378K elements | **~1 час** | **~40 мин** |
+| Code_Aster | perf009 | 261K nodes / 803K dofs | **~25 мин** | — (не делаем scaling) |
 
-| Benchmark | Размер | Время на 16 ядрах |
-|---|---|---|
-| OpenFOAM motorBike standard | 0.35M cells | **~5-7 мин** |
-| OpenRadioss Chrysler Neon 1M | 1M elements | **~2-3 часа** ⚠️ |
-| OpenRadioss Bumper Beam | ~20K elements | **~5-7 мин** |
-| OpenRadioss Cell Phone Drop | ~30K elements | **~5-10 мин** |
-| Code_Aster perf009 | 261K nodes / 803K dofs | **~20-40 мин** |
-| Code_Aster ssnv128a (nonlinear+MUMPS) | small mesh | **~8-15 мин** |
-| Code_Aster forma01a | small mesh | **~3 мин** |
+Все три времени — на платформе **Vast.ai m:42009 EPYC 9654** (Genoa, 2-socket,
+192 phys cores, 515 GB RAM). На более слабых CPU будет в 1.5-2× медленнее.
 
-Chrysler Neon 1M остаётся **production-grade HPC benchmark**, не tutorial.
-Для дипломной работы overkill даже на 16 ranks.
+Главный benchmark — **OpenRadioss Yaris Coarse** — выбран как
+**NHTSA-validated reference** из George Mason CCSA. Подробнее ниже.
+
+## TL;DR таблица (для ссылок)
+
+Время выполнения вариантов на **16 MPI ranks** на EPYC 9654:
+
+| Benchmark | Размер | Время на 16 ядрах | Статус |
+|---|---|---|---|
+| OpenFOAM motorBike standard | 0.35M cells | **~5 мин** | ⭐ выбран |
+| OpenRadioss Yaris Coarse | 378K elements | **~1 час** | ⭐ выбран |
+| OpenRadioss Chrysler Neon 1M | 1M elements | **~2 часа** | отвергнут (overkill) |
+| OpenRadioss Bumper Beam | ~20K elements | ~5 мин | отвергнут (granularity) |
+| OpenRadioss Cell Phone Drop | ~30K elements | ~7 мин | отвергнут (granularity) |
+| Code_Aster perf009 | 261K nodes / 803K dofs | **~25 мин** | ⭐ выбран |
+| Code_Aster ssnv128a (nonlinear+MUMPS) | small mesh | ~8 мин | отвергнут (granularity) |
+| Code_Aster forma01a | small mesh | ~3 мин | отвергнут (granularity) |
+
+См. [EXPERIMENT.md](EXPERIMENT.md) для granularity per rank thresholds
+и обоснования выбора.
 
 ## OpenFOAM motorBike
 

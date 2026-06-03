@@ -1,21 +1,23 @@
 # Project Status
 
-Snapshot as of 2026-06-02.
+Snapshot as of 2026-06-04.
 
 ## Built and verified
 
 | Component | State | Where |
 | --- | --- | --- |
-| Backend (Go + chi, MPIJob CRD via dynamic client) | compiles, tests green | `backend/` |
-| Frontend (React + TypeScript, 3 solvers + scheduler choice) | compiles | `frontend/` |
+| Backend (Go + chi, MPIJob CRD + Job CRD via dynamic/typed K8s client) | compiles, tests green | `backend/` |
+| Backend extraction Job orchestration (2-phase: extract → MPIJob) | implemented | `backend/internal/usecase/simulation.go` |
+| Frontend (React + TypeScript, 3 solvers + scheduler choice) | compiles, np=16 default | `frontend/` |
 | `pkg/decomp` (OpenFOAM / METIS / edge-list parsers) | 16/16 tests | `pkg/decomp/` |
-| Scheduler extender + greedy + Müller-Merbach | 4/4 algorithm tests | `scheduler/` |
-| `docker/openradioss/Dockerfile` (Rocky 9 + OpenMPI 4.1.x + mpiP) | in GHCR | `docker/openradioss/` |
-| `docker/openfoam/Dockerfile` (opencfd/openfoam-default 2306 + mpiP) | in GHCR | `docker/openfoam/` |
-| `docker/codeaster/Dockerfile` (Ubuntu 18.04 + 12 prereqs + code_aster 15.5.2 + mpiP) | in GHCR | `docker/codeaster/` |
+| Scheduler extender + **random / greedy / Müller-Merbach** (3 профиля) | 4/4 algorithm tests, label-routing | `scheduler/` |
+| **F-graph extraction binaries** (3 solvers) | implemented, smoke OK | `scheduler/cmd/extract-*` + `scripts/extract_codeaster_graph.py` |
+| `docker/openradioss/Dockerfile` (Rocky 9 + OpenMPI 4.1.x + mpiP + extract-radioss-graph + gpmetis) | in GHCR | `docker/openradioss/` |
+| `docker/openfoam/Dockerfile` (opencfd/openfoam-default 2306 + mpiP + extract-openfoam-graph) | in GHCR | `docker/openfoam/` |
+| `docker/codeaster/Dockerfile` (Ubuntu 18.04 + 12 prereqs + code_aster 15.5.2 + mpiP + extract_codeaster_graph.py) | in GHCR | `docker/codeaster/` |
 | `scheduler/Dockerfile` (distroless Go) | in GHCR | `scheduler/` |
-| K8s manifests (namespace, RBAC, storage, MPIJob example, scheduler-config patch) | written, not deployed | `k8s/` |
-| Python eval scripts (parse_mpip / run_benchmark / analyze_results) | written, not run | `experiment/` |
+| K8s manifests (namespace, RBAC for Jobs+MPIJobs, **scheduler-graphs PVC**, MPIJob example) | written, not deployed | `k8s/` |
+| Python eval scripts (parse_mpip / run_benchmark / analyze_results) | written, NUM_PROCS=16, not run on real data | `experiment/` |
 
 GHCR images:
 
@@ -92,11 +94,13 @@ find / -name "*.mpiP" 2>/dev/null | head -1 | xargs -r cat | head -40
 
 | Item | State | ETA |
 | --- | --- | --- |
-| Real K8s cluster (≥9 nodes, ≥3 AZ — Hetzner / VK / Yandex / kind+tc fallback) | not started | 3-5 days |
-| End-to-end smoke through backend → MPIJob on real cluster | not started | 1 day after cluster is up |
-| Full benchmark — 135 jobs (3 solvers × 3 schedulers × 15 reps) | not started | 25-40 hours of compute + debugging |
-| `analyze_results.py` over real data → Table 4.1 | not started | 2-3 days after numbers land |
-| Thesis text — chapters 1-5 | unknown to me, ask Mark | — |
+| **Vast.ai instance m:42009** (EPYC 9654, 192 phys cores, 515 GB RAM, $1.103/hr) | waiting on Mark to RENT | minutes |
+| Setup script `scripts/cluster-up.sh` (Docker + kind + tc qdisc + MPI Operator + scheduler + backend) | not written | ~1 day after VM live |
+| End-to-end smoke through backend → MPIJob on Vast.ai kind cluster | not started | 1 day after setup |
+| **Main benchmark — 45 jobs** (3 solvers × 3 schedulers × 5 reps, N=16) | not started | ~25 hours of compute |
+| **Scaling demo — 15 jobs** (Yaris × 3 schedulers × 5 reps, N=32) | not started | ~10 hours of compute |
+| `analyze_results.py` over real data → Table 4.1 + scaling chart | not started | 1-2 days after numbers land |
+| Thesis text — chapters 1-5 (drafts из md уже есть) | partially mapped из md | ~2 weeks |
 | Defence slides | not started | last week |
 
 ## Known caveats

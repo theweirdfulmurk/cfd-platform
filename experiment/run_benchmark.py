@@ -26,10 +26,18 @@ import time
 from pathlib import Path
 
 SOLVERS = ["openfoam", "openradioss", "code_aster"]
-SCHEDULERS = ["default", "topology-aware"]  # third config: greedy and MM variants
-                                            # exposed via scheduler ConfigMap.
+# Three placement algorithms, selected per-MPIJob via the
+# scheduler.cfd-platform/algorithm label (see scheduler/plugin/plugin.go).
+# The backend maps these scheduler names to the label values:
+#   random-scheduler   → random
+#   topology-aware     → greedy (default fallback)
+#   mueller-merbach    → mueller-merbach
+SCHEDULERS = ["random-scheduler", "topology-aware", "mueller-merbach"]
 
-REPS_PER_CONFIG = 15
+# 3 solvers × 3 schedulers × 5 reps = 45 main runs (N=16).
+# Plus optional N=32 scaling demo on Yaris Coarse (15 runs).
+# See EXPERIMENT.md for statistical methodology.
+REPS_PER_CONFIG = 5
 WARMUP_REPS = 2
 NUM_PROCS = 16  # MPI ranks per job (see EXPERIMENT.md for justification)
 

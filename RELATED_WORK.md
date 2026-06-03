@@ -45,16 +45,16 @@ Pod Vertical Scaling (KEP-1287, GA в v1.35) для resize CPU без restart.
 
 **Что заимствуем методологически**:
 - **Не использовать CPU limits** (Burstable QoS, requests-only) — критично для MPI
-- **Non-burstable instances** для reproducible measurements (CCX13 dedicated на Timeweb или Selectel dedicated)
+- **Non-burstable instances** для reproducible measurements (наш выбор — Vast.ai m:42009 с EPYC 9654, exclusive 384/384 CPU + 515/515 GB RAM)
 - **3+ runs per config** (мы делаем 5 — строже)
-- AWS EFS = ReadWriteMany NFS, у нас будет либо Timeweb managed NFS либо Longhorn
+- AWS EFS = ReadWriteMany NFS, у нас ReadWriteMany shared storage внутри VM через HostPath / NFS-like
 
 **Где наша работа продолжает**: Xie фиксирует placement (стандартный one-rank-per-vCPU) и варьирует **CPU allocation**. Мы фиксируем CPU allocation и варьируем **placement по F-графу**. Это **complementary contributions**.
 
 **Их limitations, которые мы НЕ закрываем**:
 - Только OpenFOAM (мы — 3 решателя)
-- 2D кейсы (наш Chrysler Neon — 3D)
-- ≤16 ranks, ≤101K cells (наш Chrysler Neon 1M)
+- 2D кейсы (наш Yaris Coarse 378K elements — 3D crash test с NHTSA validation)
+- ≤16 ranks (мы делаем main на N=16 и scaling demo на N=32 — independent verification growing-with-N trend)
 
 ### Beltre et al. 2019 — Enabling HPC Workloads on Cloud Infrastructure Using Kubernetes
 
@@ -204,9 +204,9 @@ SC'10, IEEE.
 
 | Methodology choice | Их обоснование | Применяем у нас |
 |---|---|---|
-| Non-burstable instances | std dev <2% vs 2× variability на burstable | Timeweb dedicated CPU (CCX13-эквивалент) |
+| Non-burstable instances | std dev <2% vs 2× variability на burstable | Vast.ai m:42009 — EPYC 9654 exclusive 384/384 CPU + 515/515 GB RAM |
 | Burstable QoS (no CPU limits) | hard limits = 78× slowdown через CFS throttling | requests-only в наших MPIJob манифестах |
 | ≥3 runs per config | reproducibility statistical | **5 runs** в нашем плане |
-| AWS EFS (ReadWriteMany NFS) | shared simulation directories | Timeweb / Selectel managed NFS или Longhorn |
+| AWS EFS (ReadWriteMany NFS) | shared simulation directories | ReadWriteMany shared storage внутри Vast.ai VM (HostPath / NFS-like) |
 | OpenMPI 4.1.x | стандартный, validated | у нас тоже 4.1 в openfoam/openradioss; 2.1 в codeaster |
-| k3s v1.35 | lightweight, GA для In-Place scaling | у нас k3s или managed K8s от Timeweb |
+| k3s v1.35 | lightweight, GA для In-Place scaling | **kind** (lightweight K8s через Docker) внутри Vast.ai VM |
