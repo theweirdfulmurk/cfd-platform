@@ -67,6 +67,15 @@ type SimulationRepository interface {
 
 // SimulationK8sManager defines the interface for Kubernetes operations.
 type SimulationK8sManager interface {
+	// Extraction: one-shot Job that decomposes the case and writes
+	// /scheduler-graphs/<simID>.edgelist for the topology-aware extender.
+	// Must complete BEFORE CreateJob so the scheduler has F-graph data
+	// at MPIJob placement time.
+	CreateExtractionJob(sim *Simulation) error
+	GetExtractionStatus(simID string) (string, error) // "pending"|"succeeded"|"failed"
+	DeleteExtractionJob(simID string) error
+
+	// MPIJob: actual parallel solver run.
 	CreateJob(sim *Simulation) error
 	GetJobStatus(simID string) (SimulationStatus, error)
 	DeleteJob(simID string) error

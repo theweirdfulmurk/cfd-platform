@@ -28,6 +28,7 @@
 
 ```
 3 решателя × 3 schedulers × 5 повторов = 45 запусков
+N MPI ranks per job = 16
 ```
 
 | Размерность | Сколько | Зачем |
@@ -35,6 +36,88 @@
 | Решатели | 3 | три точки на оси плотности F-графа — для **формы** кривой Δ(ρ), не направления |
 | Schedulers | 3 | random (baseline = «kube-scheduler default») + greedy (state-of-the-art) + MM (наше) |
 | Повторов | 5 | минимум для Shapiro-Wilk normality test и paired t-test с разумной power |
+| **N ranks per job** | **16** | обоснование ниже |
+
+### Минимальный размер задачи per rank (научное обоснование)
+
+Для корректного измерения **scheduler placement effect** через MPI time,
+размер задачи должен быть таким чтобы communication overhead **не
+доминировал** над reasonable computation per rank. Иначе любая
+placement-стратегия даст одинаковый результат — всё съест MPI overhead.
+
+Установившиеся пороги из академической литературы для OpenFOAM CFD
+(применимые с поправкой к FEM):
+
+| Источник | Threshold |
+|---|---|
+| [OpenFOAM HPC Performance documentation](https://wiki.openfoam.com/images/0/00/HPC_Bench.pdf) | optimal range **50 000-200 000 cells per core** |
+| Same | **<50 000 cells per core: parallel efficiency drops below 70%** |
+| [PRACE Bottlenecks of OpenFOAM Scalability](https://prace-ri.eu/wp-content/uploads/Current_Bottlenecks_in_the_Scalability_of_OpenFOAM_on_Massively_Parallel_Clusters.pdf) | on fast InfiniBand minimum 20 000-50 000 cells per core |
+| OpenFOAM reactive flow studies | sweet spot **5 000 cells per rank** (super-linear via caching effects) |
+
+**Для explicit FEM crash dynamics** (LS-DYNA / OpenRadioss):
+
+| Источник | Threshold per rank |
+|---|---|
+| [Cray car2car record performance](https://www.cray.com/blog/record-ls-dyna-car2car-performance-paves-the-way-for-future-crashsafety-simulation/) | 2.4M elements / 3000 cores = **800 elements/core** (extreme scale) |
+| [11th European LS-DYNA Conference 2017](https://www.dynalook.com/conferences/11th-european-ls-dyna-conference/cloud-computing-1-hpc/maximizing-cluster-scalability-for-ls-dyna) | 1024 cores → **60% efficiency floor at 2 343 elements/core** |
+| [Ansys/Intel LS-DYNA performance study](https://lsdyna.ansys.com/wp-content/uploads/2022/11/ls-dyna-r-performance-on-intel-r-scalable-solutions.pdf) | production sweet spot **3 000-10 000 elements/core** |
+
+**Для implicit FEM с MUMPS** (Code_Aster):
+
+| Источник | Threshold per rank |
+|---|---|
+| [MUMPS documentation (math/mumps)](https://www.freshports.org/math/mumps/) | dynamic distributed scheduling, **memory non-linear in parallel** |
+| Code_Aster perf009 official benchmark | 803K dofs / варьируется по числу процессов, sub-linear scaling |
+| HPC guidelines для sparse direct solvers | recommended **20 000-100 000 dofs/rank** |
+
+### Наш выбор кейсов в свете этих порогов
+
+При N=16 MPI ranks размер per rank:
+
+| Решатель | Кейс | Per rank | Зона |
+|---|---|---|---|
+| OpenFOAM | motorBike 350K cells | **21 875 cells/rank** | ✅ на границе efficient (20K+) |
+| OpenRadioss | Yaris Coarse 378K elements | **23 648 elements/rank** | ✅ efficient |
+| Code_Aster | perf009 803K dofs | **50 209 dofs/rank** | ✅ комфортная зона |
+
+Tutorial-grade OpenRadioss benchmarks НЕ попадают в efficient zone
+при N=16:
+
+| Tutorial | Elements | Per rank |
+|---|---|---|
+| Football Shot | 1 480 | **92** ❌ ниже порога в **~270×** |
+| Tensile Test | ~10 000 | ~625 ❌ |
+| Bumper Beam | ~20 000 | ~1 250 ❌ ниже порога в ~20× |
+
+На таком масштабе measurements доминируются MPI overhead, scheduler
+placement effect нельзя надёжно измерить. **Использование Yaris Coarse**
+(378K elements) обусловлено научно подтверждённой минимальной
+гранулярностью distributed FEM workloads.
+
+### Почему N=16 ranks
+
+Выбор N — критический для измеримости эффекта scheduler.
+
+Эмпирические наблюдения из литературы:
+- **Xie 2026** на 4 ranks → выигрыш per-rank CPU optimization **3%**
+- **Xie 2026** на 16 ranks → тот же подход даёт **20%** (в 7 раз ярче)
+- **Queens University 2016** — placement effect на MPI_Allgather: 20-28% на 8+ ranks
+
+На малом N (≤4 ranks) различия между placement-алгоритмами **тонут в шуме**.
+На большом N (≥32) compute time резко растёт, бюджет вырастает несоразмерно.
+
+**N=16 — sweet spot**:
+- Эффект placement уже значимый (>10% выигрыш ожидается на dense F-graph)
+- Не помещается на типичный потребительский CPU (M1: 8 ядер, типовой Xeon: 8-12) — distributed setup оправдан
+- Соответствует main scaling experiment Xie 2026
+- Compute time на запуск разумный (5-30 мин в зависимости от решателя)
+
+Защита формулируется так:
+> «N=16 MPI ranks выбрано как точка где scheduler-эффекты становятся
+> measurable per [Xie 2026], демонстрировавшим 20% wall-clock speedup
+> per-rank CPU optimization именно на этой шкале. Меньшие N (4-8 ranks)
+> не позволяют надёжно дискриминировать placement-алгоритмы из-за шума.»
 
 ### Решатели и кейсы
 
@@ -60,18 +143,23 @@ crash-analysis это Neon, для FEM это perf-серия EDF). Не custom 
 
 ## Compute budget
 
-Один запуск на 8 ranks:
+Эталонные времена выполнения см. в [BENCHMARKS.md](BENCHMARKS.md).
 
-| Решатель | Time/run |
-|---|---|
-| OpenFOAM motorBike | ~10 мин |
-| OpenRadioss Chrysler Neon 1M | ~45 мин |
-| Code_Aster perf009 | ~30 мин |
-| **Среднее** | **~30 мин** |
+Один запуск на 16 ranks (зависит от выбранного варианта benchmark'ов):
 
-45 запусков × 30 мин = **22.5 ч sequential**.
+| Решатель | Time/run (16 ranks) | Заметки |
+|---|---|---|
+| OpenFOAM motorBike (0.35M cells) | ~6 мин | tutorial-grade, sparse F |
+| OpenRadioss Cell Phone Drop (30K) | ~7 мин | tutorial-grade, medium F |
+| Code_Aster ssnv128a | ~10 мин | nonlinear+MUMPS, dense F |
+| **Среднее (Вариант C — рекомендуется)** | **~7-8 мин** | |
 
-С 18-нод кластером (2× parallelism) = **~11 ч** — за ночь.
+45 запусков × 7-8 мин = **~6 ч чистого compute** + накладные на setup/отладку.
+
+Полный uptime кластера: **~30 часов** включая отладку.
+
+С учётом инфраструктуры (Timeweb VPS 24 phys cores):
+- 30 ч × 55 ₽/час = **~1 650 ₽** за весь эксперимент.
 
 ## Статистическая методология
 

@@ -85,10 +85,11 @@ spec:
           configMap:
             name: topology-aware-scheduler-config
         - name: graphs
-          # The backend writes <jobID>.edgelist into this PVC after
-          # extracting solver decomposition (see scripts/extract_*).
+          # Dedicated PVC for edgelist files only. The backend extraction
+          # Job (extract-<simID>) writes <simID>.edgelist; this Deployment
+          # reads it at /etc/scheduler/graphs/<simID>.edgelist.
           persistentVolumeClaim:
-            claimName: simulation-configs
+            claimName: scheduler-graphs
 ---
 apiVersion: v1
 kind: Service

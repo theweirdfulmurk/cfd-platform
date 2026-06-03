@@ -33,7 +33,7 @@ spec:
                 - |
                   cd /pvc/simulations/motorbike &&
                   decomposePar -force &&
-                  mpirun -np 8 simpleFoam -parallel
+                  mpirun -np 16 simpleFoam -parallel
               volumeMounts:
                 - name: configs
                   mountPath: /pvc
@@ -47,7 +47,7 @@ spec:
               persistentVolumeClaim:
                 claimName: simulation-results
     Worker:
-      replicas: 8
+      replicas: 16
       template:
         metadata:
           labels:

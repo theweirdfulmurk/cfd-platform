@@ -12,6 +12,19 @@ ARG OMPI_VERSION=4.1.2
 ARG OPENRADIOSS_REF=main
 
 # -----------------------------------------------------------------------------
+# Stage 0 — Go builder for extract-radioss-graph (consumes the METIS graph
+# file written by the IDB_METIS=1 patched Starter + the gpmetis partition
+# file, emits edge-list for the topology-aware scheduler).
+# -----------------------------------------------------------------------------
+FROM golang:1.21-alpine AS gobuilder
+WORKDIR /src
+COPY pkg/decomp /src/pkg/decomp
+COPY scheduler /src/scheduler
+WORKDIR /src/scheduler
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/extract-radioss-graph \
+        ./cmd/extract-radioss-graph
+
+# -----------------------------------------------------------------------------
 # Stage 1 — builder: compile everything from source.
 # -----------------------------------------------------------------------------
 FROM rockylinux:9 AS builder
@@ -96,8 +109,9 @@ RUN dnf install -y epel-release && dnf install -y \
 # (raw adjacency) and the entry-point script runs `gpmetis input.graph0 N`
 # to get the .part.N file that decomp.METIS() expects.
 
-COPY --from=builder /opt/openmpi /opt/openmpi
-COPY --from=builder /opt/mpiP    /opt/mpiP
+COPY --from=builder   /opt/openmpi /opt/openmpi
+COPY --from=builder   /opt/mpiP    /opt/mpiP
+COPY --from=gobuilder /out/extract-radioss-graph /usr/local/bin/extract-radioss-graph
 
 # Copy only the runtime parts of OpenRadioss — exec binaries, config files,
 # and the extlib shared libraries the engine loads at run time. Sources, .git,

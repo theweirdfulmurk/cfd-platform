@@ -357,6 +357,8 @@ RUN mkdir /work && useradd -b /work -m -s /bin/bash aster
 COPY --from=aster_builder /aster /aster
 COPY --from=mpip_builder  /opt/mpiP /opt/mpiP
 COPY run_testcases /usr/local/bin/run_testcases
+COPY extract_codeaster_graph.py /opt/scripts/extract_codeaster_graph.py
+RUN chmod +x /opt/scripts/extract_codeaster_graph.py
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python && \
     ln -s /aster/tfel/bin/mfront-3.4.0 /usr/local/bin/ && \

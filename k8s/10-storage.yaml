@@ -26,3 +26,20 @@ spec:
   resources:
     requests:
       storage: 50Gi
+---
+# Shared PVC for F-graph edgelist files. Written by backend extraction
+# Jobs (one per Simulation, named extract-<simID>), read by the
+# topology-aware scheduler extender when placing the corresponding MPIJob
+# pods. Files are tiny (~KB each, one per simulation), but the access
+# pattern requires ReadWriteMany since extraction Job and extender Deployment
+# run on different nodes.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scheduler-graphs
+  namespace: cfd-platform
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 1Gi

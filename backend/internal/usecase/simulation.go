@@ -66,6 +66,17 @@ func (uc *SimulationUseCase) CreateWithFile(
 		CreatedAt:     time.Now(),
 	}
 
+	// Two-phase orchestration:
+	//   1. Create extraction Job (decomposePar / Starter+gpmetis /
+	//      medpartitioner+python) — writes /scheduler-graphs/<id>.edgelist.
+	//   2. Wait for it to Succeed (polling, timeout ~5 min).
+	//   3. Create MPIJob — scheduler now has F-graph data for placement.
+	if err := uc.k8sManager.CreateExtractionJob(sim); err != nil {
+		return nil, fmt.Errorf("create extraction Job: %w", err)
+	}
+	if err := uc.waitExtraction(simID, 5*time.Minute); err != nil {
+		return nil, fmt.Errorf("extraction failed: %w", err)
+	}
 	if err := uc.k8sManager.CreateJob(sim); err != nil {
 		return nil, fmt.Errorf("create MPIJob: %w", err)
 	}
@@ -73,6 +84,26 @@ func (uc *SimulationUseCase) CreateWithFile(
 		return nil, fmt.Errorf("persist simulation: %w", err)
 	}
 	return sim, nil
+}
+
+// waitExtraction blocks until the extraction Job for simID reaches
+// Succeeded or Failed, or the timeout fires.
+func (uc *SimulationUseCase) waitExtraction(simID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, err := uc.k8sManager.GetExtractionStatus(simID)
+		if err != nil {
+			return fmt.Errorf("poll extraction: %w", err)
+		}
+		switch status {
+		case "succeeded":
+			return nil
+		case "failed":
+			return fmt.Errorf("extraction Job failed")
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("extraction did not finish within %s", timeout)
 }
 
 // extractTarGz unpacks a .tar.gz stream into dstDir. Paths containing

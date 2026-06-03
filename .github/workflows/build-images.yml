@@ -46,20 +46,21 @@ jobs:
       matrix:
         solver:
           - name: openradioss
-            context: ./docker/openradioss
+            context: .
             dockerfile: ./docker/openradioss/Dockerfile
             # Long build (~45-60 min): compiles OpenMPI 4.1.2 + OpenRadioss
-            # + mpiP from source in a single image.
+            # + mpiP from source. Context = repo root for extract bin.
           - name: openfoam
-            context: ./docker/openfoam
+            context: .
             dockerfile: ./docker/openfoam/Dockerfile
-            # Thin layer (~5 min): adds mpiP onto opencfd/openfoam-default:2306.
+            # Thin layer + Go builder for extract-openfoam-graph
+            # (context = repo root so pkg/decomp + scheduler are visible).
           - name: codeaster
             context: ./docker/codeaster
             dockerfile: ./docker/codeaster/Dockerfile
             # Full build from source via `make bootstrap` (~60-90 min first
             # time, cached on subsequent runs). Schema-1 image hazard
-            # avoided.
+            # avoided. Context kept = docker/codeaster to preserve cache.
           - name: scheduler
             context: .
             dockerfile: ./scheduler/Dockerfile

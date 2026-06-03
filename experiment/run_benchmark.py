@@ -31,7 +31,7 @@ SCHEDULERS = ["default", "topology-aware"]  # third config: greedy and MM varian
 
 REPS_PER_CONFIG = 15
 WARMUP_REPS = 2
-NUM_PROCS = 8  # MPI ranks per job
+NUM_PROCS = 16  # MPI ranks per job (see EXPERIMENT.md for justification)
 
 
 def submit_job(backend: str, name: str, solver: str, scheduler: str,

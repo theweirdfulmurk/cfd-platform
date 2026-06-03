@@ -20,6 +20,12 @@ rules:
   - apiGroups: [kubeflow.org]
     resources: [mpijobs]
     verbs: [get, list, watch, create, delete, update, patch]
+  # Pre-MPIJob extraction Jobs (extract-<simID>) — one-shot Kubernetes Jobs
+  # the backend creates to populate /scheduler-graphs/<simID>.edgelist
+  # before scheduling the actual MPIJob.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

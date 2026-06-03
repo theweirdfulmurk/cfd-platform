@@ -2,7 +2,20 @@
 # The base image ships OpenMPI 4.1.2, so libmpiP.so built on the same ABI
 # is dropped in via LD_PRELOAD at run time.
 #
+# Build context = repo root (so pkg/decomp and scheduler/ are visible).
 # Build:  docker build -f docker/openfoam/Dockerfile -t openfoam-mpip .
+
+# -----------------------------------------------------------------------------
+# Stage 0 — Go builder for extract-openfoam-graph (reads processor*/boundary,
+# emits edge-list for our topology-aware scheduler).
+# -----------------------------------------------------------------------------
+FROM golang:1.21-alpine AS gobuilder
+WORKDIR /src
+COPY pkg/decomp /src/pkg/decomp
+COPY scheduler /src/scheduler
+WORKDIR /src/scheduler
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/extract-openfoam-graph \
+        ./cmd/extract-openfoam-graph
 
 # -----------------------------------------------------------------------------
 # Stage 1 — builder: build libmpiP.so using the OpenMPI shipped in the base.
@@ -40,7 +53,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libunwind8 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/mpiP /opt/mpiP
+COPY --from=builder   /opt/mpiP /opt/mpiP
+COPY --from=gobuilder /out/extract-openfoam-graph /usr/local/bin/extract-openfoam-graph
 
 # We do NOT set LD_PRELOAD here. The MPIJob template adds it only when
 # profiling is requested — running without LD_PRELOAD gives the unprofiled

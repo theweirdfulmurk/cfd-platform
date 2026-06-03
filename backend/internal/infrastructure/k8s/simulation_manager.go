@@ -5,6 +5,9 @@ import (
 	"fmt"
 
 	"github.com/theweirdfulmurk/cfd-platform/internal/domain"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,6 +25,25 @@ var MPIJobGVR = schema.GroupVersionResource{
 	Resource: "mpijobs",
 }
 
+// LabelAlgorithm mirrors the constant in scheduler/plugin/plugin.go —
+// the extender reads this off the Pod to decide which placement strategy
+// to apply (random / greedy / mueller-merbach).
+const LabelAlgorithm = "scheduler.cfd-platform/algorithm"
+
+// algorithmFromSchedulerName maps the SchedulerName field of a Simulation
+// to the algorithm label written onto Pods. SchedulerName is the public
+// API field selected by the user / benchmark orchestrator.
+func algorithmFromSchedulerName(name string) string {
+	switch name {
+	case "random-scheduler", "random":
+		return "random"
+	case "mueller-merbach", "mm-scheduler", "mm":
+		return "mueller-merbach"
+	default:
+		return "greedy"
+	}
+}
+
 // solverImage returns the container image for a given solver type. Images
 // are produced by the GH Actions workflow in .github/workflows/build-images.yml
 // and pushed to GHCR.
@@ -37,28 +59,78 @@ func solverImage(t domain.SimulationType) string {
 	return ""
 }
 
-// solverCommand returns the launcher command (inside the MPIJob launcher
-// pod) that kicks off the solver across all worker pods via mpirun. Each
-// solver has its own entry-point.
+// solverCommand returns the launcher command for the MPIJob *run* phase,
+// assuming extractionCommand() already produced the decomposed mesh
+// (processor*/) and the F-graph edgelist in /scheduler-graphs/<id>.edgelist.
+// Each solver only does its `mpirun ...` line here.
 func solverCommand(t domain.SimulationType, configPath string, np int) []string {
 	caseDir := "/pvc/simulations/" + configPath
 	switch t {
 	case domain.SimTypeOpenFOAM:
 		return []string{
 			"/bin/bash", "-c",
-			fmt.Sprintf("cd %s && decomposePar -force && "+
-				"mpirun -np %d simpleFoam -parallel", caseDir, np),
+			fmt.Sprintf("cd %s && mpirun -np %d simpleFoam -parallel", caseDir, np),
 		}
 	case domain.SimTypeOpenRadioss:
 		return []string{
 			"/bin/bash", "-c",
-			fmt.Sprintf("cd %s && starter_linux64_gf -np %d -input *.rad && "+
-				"mpirun -np %d engine_linux64_gf_ompi", caseDir, np, np),
+			fmt.Sprintf("cd %s && mpirun -np %d engine_linux64_gf_ompi -input *.rad",
+				caseDir, np),
 		}
 	case domain.SimTypeCodeAster:
 		return []string{
 			"/bin/bash", "-c",
 			fmt.Sprintf("cd %s && mpirun -np %d as_run *.export", caseDir, np),
+		}
+	}
+	return nil
+}
+
+// extractionCommand returns the bash command for the *pre-MPIJob* extraction
+// Job (run as a regular Kubernetes Job, not as part of MPIJob). It does the
+// solver-specific decomposition and emits an edge-list to
+// /scheduler-graphs/<id>.edgelist that the topology-aware scheduler extender
+// reads at placement time.
+//
+// The same solver image is used (no extra container to build) — the
+// extraction binaries (extract-openfoam-graph, extract-radioss-graph) are
+// baked into the runtime layer by docker/openfoam/Dockerfile and
+// docker/openradioss/Dockerfile. Code_Aster uses a Python script
+// (extract_codeaster_graph.py) bundled at /opt/scripts/.
+//
+// Output goes both into the case PVC (processor*/, parts/ — needed by the
+// subsequent MPIJob) and into the shared scheduler-graphs PVC (edgelist —
+// consumed by the extender).
+func extractionCommand(t domain.SimulationType, simID, configPath string, np int) []string {
+	caseDir := "/pvc/simulations/" + configPath
+	edgelist := fmt.Sprintf("/scheduler-graphs/%s.edgelist", simID)
+
+	switch t {
+	case domain.SimTypeOpenFOAM:
+		return []string{
+			"/bin/bash", "-c",
+			fmt.Sprintf("set -e && cd %s && decomposePar -force && "+
+				"extract-openfoam-graph . > %s", caseDir, edgelist),
+		}
+	case domain.SimTypeOpenRadioss:
+		return []string{
+			"/bin/bash", "-c",
+			fmt.Sprintf("set -e && cd %s && "+
+				"starter_linux64_gf -np %d -input *.rad && "+
+				"gpmetis input.graph0 %d && "+
+				"extract-radioss-graph input.graph0 input.graph0.part.%d > %s",
+				caseDir, np, np, np, edgelist),
+		}
+	case domain.SimTypeCodeAster:
+		return []string{
+			"/bin/bash", "-c",
+			fmt.Sprintf("set -e && cd %s && "+
+				"mkdir -p parts && "+
+				"medpartitioner --input-file=*.med --output-file=parts/part "+
+				"--ndomains=%d --create-boundary-faces --plain-master && "+
+				"python3 /opt/scripts/extract_codeaster_graph.py "+
+				"--parts-dir parts/ --ndomains %d > %s",
+				caseDir, np, np, edgelist),
 		}
 	}
 	return nil
@@ -81,6 +153,122 @@ func NewSimulationManager(clientset *kubernetes.Clientset, dynClient dynamic.Int
 		namespace: namespace,
 	}
 }
+
+// CreateExtractionJob creates a one-shot Kubernetes Job that runs the
+// solver-specific extraction pipeline (decomposePar / Starter+gpmetis /
+// medpartitioner+python) and writes the F-graph edgelist to the shared
+// scheduler-graphs PVC. The caller (usecase) waits for this Job to reach
+// Succeeded before creating the MPIJob — only then does the scheduler
+// extender have an edgelist to read at MPIJob placement time.
+//
+// Naming: extract-<simID>. Garbage-collected by ownerReferences when the
+// Simulation is deleted from the database.
+func (m *SimulationManager) CreateExtractionJob(sim *domain.Simulation) error {
+	image := solverImage(sim.Type)
+	if image == "" {
+		return fmt.Errorf("unsupported simulation type: %s", sim.Type)
+	}
+	np := sim.NumProcs
+	if np < 1 {
+		np = 1
+	}
+	cmd := extractionCommand(sim.Type, sim.ID, sim.ConfigPath, np)
+	if cmd == nil {
+		return fmt.Errorf("no extraction command for solver %s", sim.Type)
+	}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("extract-%s", sim.ID),
+			Namespace: m.namespace,
+			Labels: map[string]string{
+				"app":        "extraction",
+				"type":       string(sim.Type),
+				"mpi-job-id": sim.ID,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: int32Ptr(0), // fail fast on first error
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{{
+						Name:    "extract",
+						Image:   image,
+						Command: cmd,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("2Gi"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: "config", MountPath: "/pvc"},
+							{Name: "scheduler-graphs", MountPath: "/scheduler-graphs"},
+						},
+					}},
+					Volumes: []corev1.Volume{
+						{
+							Name: "config",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: "simulation-configs",
+								},
+							},
+						},
+						{
+							Name: "scheduler-graphs",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: "scheduler-graphs",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := m.clientset.BatchV1().Jobs(m.namespace).Create(
+		context.Background(), job, metav1.CreateOptions{},
+	)
+	return err
+}
+
+// GetExtractionStatus polls the extraction Job and returns one of:
+//
+//	pending  — Job created but not yet completed
+//	succeeded — extraction wrote edgelist, MPIJob can be created
+//	failed   — extraction errored; sim should be marked failed
+func (m *SimulationManager) GetExtractionStatus(simID string) (string, error) {
+	job, err := m.clientset.BatchV1().Jobs(m.namespace).Get(
+		context.Background(), fmt.Sprintf("extract-%s", simID), metav1.GetOptions{},
+	)
+	if err != nil {
+		return "", err
+	}
+	if job.Status.Succeeded > 0 {
+		return "succeeded", nil
+	}
+	if job.Status.Failed > 0 {
+		return "failed", nil
+	}
+	return "pending", nil
+}
+
+// DeleteExtractionJob removes the extraction Job and its pod (called after
+// MPIJob is created and we no longer need the extraction artefact).
+func (m *SimulationManager) DeleteExtractionJob(simID string) error {
+	propagationPolicy := metav1.DeletePropagationBackground
+	return m.clientset.BatchV1().Jobs(m.namespace).Delete(
+		context.Background(),
+		fmt.Sprintf("extract-%s", simID),
+		metav1.DeleteOptions{PropagationPolicy: &propagationPolicy},
+	)
+}
+
+func int32Ptr(i int32) *int32 { return &i }
 
 func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 	image := solverImage(sim.Type)
@@ -117,8 +305,9 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 					"template": map[string]any{
 						"metadata": map[string]any{
 							"labels": map[string]any{
-								"mpi-job-id": sim.ID,
-								"mpi-role":   "launcher",
+								"mpi-job-id":   sim.ID,
+								"mpi-role":     "launcher",
+								LabelAlgorithm: algorithmFromSchedulerName(sim.SchedulerName),
 							},
 						},
 						"spec": map[string]any{
@@ -150,8 +339,9 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 					"template": map[string]any{
 						"metadata": map[string]any{
 							"labels": map[string]any{
-								"mpi-job-id": sim.ID,
-								"mpi-role":   "worker",
+								"mpi-job-id":   sim.ID,
+								"mpi-role":     "worker",
+								LabelAlgorithm: algorithmFromSchedulerName(sim.SchedulerName),
 							},
 						},
 						"spec": map[string]any{

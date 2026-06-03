@@ -19,6 +19,8 @@ Thumbs.db
 backend/server
 backend/cmd/server/server
 scheduler/scheduler
+scheduler/extract-openfoam-graph
+scheduler/extract-radioss-graph
 
 # Test / coverage artefacts.
 *.test

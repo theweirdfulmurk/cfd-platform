@@ -1,101 +1,195 @@
 # Кластер — план развёртывания
 
-Промежуточное состояние от 2026-06-02. Есть открытые моменты.
+Состояние от 2026-06-03. Обновлено под N=16 ranks и dedicated phys cores.
 
-## Выбор провайдера: Timeweb Cloud
+## TL;DR
 
 | Параметр | Значение |
 |---|---|
-| Managed Kubernetes | да |
-| Локации | СПб / Москва / Новосибирск — **3 разных города** |
-| Cross-region latency | ~5-30 ms (реальная multi-region) |
-| Intra-region latency | <1 ms |
-| Bimodal latency contrast | ~50-100× (нужно для гипотезы) |
-| Оплата | рубли, российская карта |
-| Документация | базовая, на русском |
+| MPI ranks per job | **16** (обосновано в [EXPERIMENT.md](EXPERIMENT.md)) |
+| Минимум физических ядер | **24** (1 rank = 1 phys core + запас на launcher и scheduler choice space) |
+| Multi-AZ | через **tc qdisc эмуляцию** (3 логические зоны 8+8+8) |
+| Тип CPU | **dedicated physical cores**, не HT-threads |
+| Оплата | **почасовая** (платим за uptime, не за месяц) |
+| Реальное uptime | ~40 часов (3 дня cycle с отладкой) |
 
-## Топология
+## Эволюция плана
 
-| Регион | Узлов | Назначение |
+Зафиксирована для будущей памяти и для главы 3 «Архитектура эксперимента».
+
+### Шаг 1: 8 ranks, multi-region managed K8s
+
+**Идея**: 8 ranks × 3 разных регионов России → multi-region кластер для real cross-region latency.
+
+**Что выяснилось**: managed K8s ни у одного провайдера не поддерживает multi-region (etcd consensus требует low latency между master нодами). Это **глобальная** проблема, не Timeweb-специфичная.
+
+### Шаг 2: 8 ranks, Selectel multi-AZ Москва
+
+**Идея**: Selectel даёт multi-zone managed K8s — 3 разных датацентра в Москве (ru-6a/b/c), latency 0.5-1 ms cross-AZ.
+
+**Цена**: ~6 200 ₽ за 40 часов uptime (18 нод 2 vCPU + 8 GB).
+
+**Что выяснилось**:
+- На 8 ranks эффект placement слабый (Xie 2026 показал 3% на 4 ranks vs 20% на 16 ranks)
+- 8 ranks помещается на любой современный CPU → distributed setup не оправдан
+- Multi-AZ latency 0.5-1 ms даёт слабый contrast (5×) — выигрыш placement скрывается в шуме
+
+### Шаг 3: переход на 16 ranks
+
+**Обоснование**:
+- **Xie 2026**: 16 ranks на 4 worker nodes = их главный заявленный результат, 20% wall-clock speedup
+- **На 16 ranks эффект scheduler в 7 раз ярче** чем на 4 ranks (proven empirically)
+- 16 ranks **не помещается** на типичную потребительскую машину (M1: 8 cores, типичный CPU: 8-12 cores) → distributed обязателен
+- Защита сильнее: «scaling experiment в production-relevant range»
+
+**Что меняется в плане**:
+- Узлов нужно минимум **16 worker + 1 launcher = 17**
+- Для качественной дискриминации алгоритмов scheduler — нужно **24+ узлов** (8 свободных = реальный choice space)
+
+### Шаг 4: VPS с 24 phys cores vs managed K8s
+
+**Прозрение**: если эмулируем multi-AZ через `tc qdisc`, то **многонодовый кластер не обязателен** — достаточно одного большого VPS с 24+ физическими ядрами + kind + cgroup cpuset + tc qdisc.
+
+Преимущества:
+- В **3.5 раза дешевле**
+- **Физически чище** — 1 rank = 1 phys core (без HT-sharing)
+- Полный контроль над tc qdisc настройками
+- Воспроизводимость (всё на одной машине)
+
+Недостатки:
+- Self-installed kind setup (+2-3 часа в первый день)
+- На защите чуть менее впечатляюще («kind + tc» vs «реальный multi-AZ»)
+
+## Два варианта инфраструктуры
+
+### Вариант A — VPS с 24 phys cores + kind + tc ⭐
+
+**Провайдер**: [Timeweb Cloud Dedicated CPU](https://timeweb.cloud/blog/novaya-linejka-tarifov-dedicated-cpu).
+
+**Конфигурация**:
+- 24 dedicated physical cores (не HT-threads)
+- 64 GB RAM (2-3 GB на «ноду»-контейнер × 24 + system)
+- 200 GB NVMe (наши 4 образа × 24 = много места под Docker слои)
+- Локация: Москва или СПб
+- Цена: 1 250 ₽/мес за phys core + базовая конфигурация
+- **Итого**: ~40 000 ₽/мес или **~55 ₽/час**
+
+**Setup** (~2-3 часа первый раз):
+1. Заказ VPS, Ubuntu 22.04
+2. Docker, kind, kubectl
+3. kind cluster config: 24 ноды-контейнера с node labels `topology.kubernetes.io/zone={a,b,c}`
+4. cgroup cpuset: каждый контейнер закреплён на 1 phys core
+5. tc qdisc на bridge interface: latency 5-10 ms между ноды разных зон
+6. Install MPI Operator + наш scheduler extender
+7. Deploy backend + frontend
+
+**Multi-AZ через tc qdisc**:
+```
+8 нод "zone-a" → cpuset cores 0-7,    нет delay
+8 нод "zone-b" → cpuset cores 8-15,   tc qdisc 5 ms к zone-a и zone-c
+8 нод "zone-c" → cpuset cores 16-23,  tc qdisc 10 ms к zone-a и zone-b
+```
+
+**Цена 40 часов uptime**: ~2 200 ₽
+
+**Защита** (формулировка для дипломки):
+> «Эксперимент проведён на однородной vCPU-инфраструктуре (24 dedicated physical cores) с эмуляцией multi-AZ топологии через Linux Traffic Control (`tc qdisc netem`). Этот подход обеспечивает controlled и reproducible variability latency contrast, не зависящую от изменений в cloud infrastructure provider — стандартная академическая методология для исследования scheduling алгоритмов.»
+
+### Вариант B — Selectel managed K8s 24 нод multi-AZ
+
+**Конфигурация**:
+- 24 cloud node × (2 vCPU dedicated + 4 GB RAM)
+- 3 группы по 8 нод в зонах ru-6a, ru-6b, ru-6c
+- Multi-zone master (3 master nodes в 3 AZ), SLA 99.98%
+- Latency cross-AZ ~0.5-1 ms реальная
+
+**Setup** (~30 мин):
+1. Создать кластер через Selectel UI
+2. Скачать kubeconfig
+3. Install MPI Operator + наш scheduler extender
+4. Deploy backend + frontend
+5. tc qdisc можно опционально добавить для усиления contrast
+
+**Multi-AZ — реальный**:
+- 3 разных датацентра физически
+- Latency 0.5-1 ms реальная
+- Можно добавить tc qdisc сверху для усиления (опционально)
+
+**Цена 40 часов uptime**: ~8 000 ₽ (с учётом 2 vCPU на ноду через HT, не 24 phys cores)
+
+**Защита**:
+> «Эксперимент проведён на 24-нодном Kubernetes-кластере в 3 разных датацентрах Москвы (Selectel ru-6a/b/c) с реальным multi-AZ latency contrast.»
+
+## Сравнительная таблица
+
+| | Вариант A: VPS + kind | Вариант B: Selectel managed |
 |---|---|---|
-| СПб | 6 | AZ-A |
-| Москва | 6 | AZ-B |
-| Новосибирск | 6 | AZ-C |
-| **Итого** | **18** | 2× параллелизм для 45 запусков |
+| Цена 40 ч uptime | **~2 200 ₽** | ~8 000 ₽ |
+| Physical cores per node | **1 phys core (1:1)** | HT-shared (через 2 vCPU = 1 phys + 1 HT) |
+| Multi-AZ | tc qdisc эмуляция | реальный + опционально tc |
+| Setup time (первый раз) | 2-3 часа | 30 мин |
+| Контроль | полный | ограничен managed |
+| Воспроизводимость | очень высокая (1 машина) | высокая |
+| Защита (формулировка) | «kind + tc qdisc, standard academic» | «real multi-AZ в 3 ДЦ» |
+| Std dev (ожидаем) | <2% (real phys cores) | <2-3% (dedicated 2 vCPU) |
 
-Worker spec (с учётом требований из [RELATED_WORK.md](RELATED_WORK.md)):
-- **Dedicated CPU** (не burstable / не shared) — критично для воспроизводимости
-- 2 vCPU dedicated, 4 GB RAM, 20 GB SSD
-- ~1 500-2 000 ₽/мес за ноду
+## Рекомендация
 
-**Почему dedicated CPU обязательно:** Xie 2026 (arXiv:2603.22691)
-показал что на burstable instances (AWS t3.xlarge с shared CPU)
-разброс времени выполнения **до 2×** на одну и ту же задачу.
-На non-burstable (c5.xlarge с dedicated CPU) — **std dev <2% от среднего**.
-Воспроизводимость экспериментов требует dedicated CPU.
+**Вариант A — Timeweb VPS 24 phys cores + kind + tc**.
 
-## Стоимость (оценка)
+Причины:
+1. **3.5× дешевле** (1 800 ₽ экономии vs B)
+2. **Физически чище**: 1 rank = 1 phys core, никакого HT-sharing
+3. **Большая свобода** настройки tc qdisc — можно testing разные latency contrast values
+4. **Воспроизводимость** для других researchers выше — стандартный setup
+5. Защищается **standard academic** методологией
 
-| Статья | Сумма/мес |
+Когда брать Вариант B:
+- Если защита очень требует «real multi-AZ» (научрук специально просит)
+- Если не хочется делать self-installed kind
+
+## TODO для Варианта A (Timeweb VPS)
+
+1. **Mark**: регистрация на Timeweb Cloud (уже сделано)
+2. **Mark**: заказ VPS Dedicated CPU 24 phys cores + 64 GB RAM + 200 GB NVMe в Москве
+3. **Mark**: SSH доступ — передать ключ или через .env локально
+4. **Я**: написать setup script (`scripts/cluster-up.sh`):
+   - Ubuntu setup
+   - Docker, kind, kubectl install
+   - kind cluster config с 24 нодами по 3 зонам
+   - cgroup cpuset скрипт
+   - tc qdisc setup скрипт
+   - Install MPI Operator
+   - Deploy наш scheduler + backend
+5. **Я**: smoke test первого MPIJob через backend на этом кластере
+6. **Я**: документация по добавлению tc qdisc вариаций для запуска benchmark
+
+## TODO для Варианта B (Selectel managed K8s)
+
+1. **Mark**: создать кластер через Selectel UI (3 группы 8+8+8 в ru-6a/b/c)
+2. **Mark**: скачать kubeconfig
+3. **Я**: install MPI Operator + наш scheduler
+4. **Я**: deploy backend + frontend
+5. **Я** (опционально): tc qdisc сверху для усиления contrast если нужно
+
+## Что меняется в коде/конфигах при N=16
+
+| Файл | Изменение |
 |---|---|
-| 18 worker нод (2 vCPU dedicated, 4 GB) | ~27 000-36 000 ₽ |
-| Master (Base tier) | ~2 000 ₽ |
-| NFS ReadWriteMany storage (~50 GB) | ~500 ₽ |
-| Egress (mpiP отчёты килобайтами) | ~0 ₽ (бесплатные 100 GB) |
-| **Итого** | **~30 000-39 000 ₽/мес** |
+| `backend/.../simulation_manager.go` | ✅ ничего — `NumProcs` уже параметр |
+| `frontend/.../CreateSimulation.tsx` | default `np=4` → `np=16` |
+| `k8s/examples/openfoam-mpijob.yaml` | `replicas: 8` → `replicas: 16` |
+| `experiment/run_benchmark.py` | `NUM_PROCS = 8` → `NUM_PROCS = 16` |
+| BENCHMARKS.md | пересчитать compute time для 16 ranks |
+| EXPERIMENT.md | заменить N=8 на N=16 в обосновании |
 
-**Если бюджет жмёт** — можно сократить до 12 нод (4+4+4) с
-**sequential** прогоном 45 jobs за 22 часа вместо 11. Тогда:
+## Открытые вопросы
 
-| Альтернатива | Узлов | Compute | Стоимость/мес |
-|---|---|---|---|
-| Минимум | 9 (3+3+3) sequential | 22.5 ч | ~15-18 тыс ₽ |
-| Средне | 12 (4+4+4) sequential | 22.5 ч | ~20-24 тыс ₽ |
-| **Оптимум** ⭐ | **18 (6+6+6) parallel 2×** | **~11 ч** | **~30-39 тыс ₽** |
+- [ ] Какой вариант берём — A или B?
+- [ ] Если A — подтвердить что Timeweb принимает оплату удобной картой
+- [ ] Тестовый запуск отдельного VPS на 1 час чтобы проверить что dedicated CPU действительно реализуется как заявлено
+- [ ] Решить про вариабельность tc qdisc latency (5, 10, 30 ms?) для дополнительной серии запусков
 
-После окончания эксперимента — сносим project, оплата прекращается.
-Реально используем 1 месяц аренды.
+## Финальный выбор
 
-## TODO для подъёма кластера
-
-1. **Mark**: регистрация на https://timeweb.cloud, привязать карту
-2. **Mark**: получить API ключ в личном кабинете
-3. **Mark**: передать API ключ (через `.env` локально, не коммитить)
-4. **Я**: написать bash/terraform скрипт для развёртывания:
-   - Создать managed K8s cluster
-   - Node groups по регионам (4 + 4 + 4) с node labels `topology.kubernetes.io/zone={a,b,c}`
-   - StorageClass с ReadWriteMany (NFS provisioner или их встроенный)
-   - Установить MPI Operator (`mpi-operator v2beta1`)
-   - Установить наш scheduler extender
-   - Развернуть backend + frontend
-5. **Я**: задеплоить тестовый MPIJob и убедиться что pods реально размещаются в разных регионах
-6. **Я**: настроить scheduler config с 3 профилями (random / greedy / MM)
-
-## Критические constraints для MPIJob deployment
-
-Из обзора литературы (особенно Xie 2026):
-
-1. **Никаких CPU limits в Pod spec**. Только `requests`.
-   Hard limits через CFS bandwidth controller вызывают **78× slowdown**
-   на tightly-coupled MPI через cascading stalls в `MPI_Allreduce`.
-   Подробности: [EXPERIMENT.md](EXPERIMENT.md), секция «Burstable QoS».
-
-2. **NFS ReadWriteMany обязательно**. У всех ranks должен быть доступ
-   к одной shared simulation directory. PVC с ReadWriteOnce не подойдёт.
-   Timeweb даёт managed NFS либо ставим Longhorn сами.
-
-3. **Один rank на одну ноду** (1 MPI rank = 1 vCPU = 1 worker pod
-   с antiAffinity по nodes). Без oversubscription, без HT-эффектов.
-
-## Открытые вопросы (Mark, дозаполни перед регистрацией)
-
-- [ ] Уточнить какой именно тариф Timeweb даёт dedicated CPU
-      (Standard / Premium / CPU-optimized?)
-- [ ] Есть ли у Timeweb HPA / spot для economy на debugging stages?
-- [ ] Bandwidth между регионами — bottleneck для MPI? Smoke с iperf3 первым делом
-- [ ] *доп. вопросы Mark*: 
-
-## Что ещё нужно решить
-
-- Способ хранения CSV-результатов: на NFS PVC или скачать локально через `kubectl cp`?
-- Бюджет на отладку: реально использовать ~50% запасных запусков (debug runs)
+**Жду подтверждения Mark.**

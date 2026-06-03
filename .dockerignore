@@ -1,0 +1,13 @@
+# Don't ship the whole repo into Docker builds — only pkg/decomp and
+# scheduler are needed (the rest of the tree adds bytes and cache misses).
+backend/
+frontend/
+experiment/
+docs/
+scripts/
+k8s/
+.github/
+.git/
+*.md
+*.log
+.DS_Store

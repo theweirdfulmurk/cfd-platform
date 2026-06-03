@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,6 +43,15 @@ const (
 	// when constructing the MPIJob spec.
 	LabelMPIJobID = "mpi-job-id"
 
+	// LabelAlgorithm selects which placement strategy this job uses.
+	// Set by the backend per MPIJob; mirrors the experiment's three
+	// scheduler profiles (random / greedy / mueller-merbach).
+	LabelAlgorithm = "scheduler.cfd-platform/algorithm"
+
+	AlgorithmRandom         = "random"
+	AlgorithmGreedy         = "greedy"
+	AlgorithmMuellerMerbach = "mueller-merbach"
+
 	// MaxPriority is the canonical extender score ceiling.
 	MaxPriority = int64(10)
 )
@@ -58,6 +68,11 @@ type Extender struct {
 	// The extender is called per pod; we accumulate to inform Greedy.
 	placements map[string]map[int]string
 
+	// mmPlacements caches the FULL Müller-Merbach placement for a job —
+	// computed once on first scoring request, reused for every subsequent
+	// rank of the same job.
+	mmPlacements map[string]algorithms.Placement
+
 	logger *slog.Logger
 }
 
@@ -66,10 +81,11 @@ func NewExtender(logger *slog.Logger) *Extender {
 		logger = slog.Default()
 	}
 	return &Extender{
-		jobGraphs:  make(map[string]*decomp.Graph),
-		nodeIndex:  make(map[string]int),
-		placements: make(map[string]map[int]string),
-		logger:     logger,
+		jobGraphs:    make(map[string]*decomp.Graph),
+		nodeIndex:    make(map[string]int),
+		placements:   make(map[string]map[int]string),
+		mmPlacements: make(map[string]algorithms.Placement),
+		logger:       logger,
 	}
 }
 
@@ -133,8 +149,21 @@ func (e *Extender) PrioritizeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	algo := pod.Labels[LabelAlgorithm]
+	if algo == "" {
+		algo = AlgorithmGreedy // sensible default
+	}
+
 	nodeNames := nodeNamesFromArgs(args)
-	scores := e.scoreNodes(graph, latency, nodeIdx, placements, thisRank, nodeNames)
+	var scores extenderv1.HostPriorityList
+	switch algo {
+	case AlgorithmRandom:
+		scores = e.scoreRandom(jobID, thisRank, nodeNames)
+	case AlgorithmMuellerMerbach:
+		scores = e.scoreMuellerMerbach(jobID, graph, latency, nodeIdx, thisRank, nodeNames)
+	default: // greedy
+		scores = e.scoreNodes(graph, latency, nodeIdx, placements, thisRank, nodeNames)
+	}
 
 	// Record the chosen node (highest score) into placements cache.
 	if best := bestNode(scores); best != "" {
@@ -150,6 +179,74 @@ func (e *Extender) PrioritizeHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(scores); err != nil {
 		e.logger.Error("encode response", "err", err)
 	}
+}
+
+// scoreRandom assigns one node uniformly at random (with a job-stable seed
+// so reruns of the same job yield the same placement). The chosen node gets
+// MaxPriority, others 0. This is the experiment's "no-topology" baseline.
+func (e *Extender) scoreRandom(
+	jobID string,
+	thisRank int,
+	nodeNames []string,
+) extenderv1.HostPriorityList {
+	seed := algorithms.SeedFromJobID(jobID)
+	rng := rand.New(rand.NewSource(seed + int64(thisRank)))
+	pick := rng.Intn(len(nodeNames))
+
+	out := make(extenderv1.HostPriorityList, len(nodeNames))
+	for i, name := range nodeNames {
+		out[i] = extenderv1.HostPriority{Host: name}
+		if i == pick {
+			out[i].Score = MaxPriority
+		}
+	}
+	return out
+}
+
+// scoreMuellerMerbach computes (and caches per job) the full MM placement
+// of all ranks onto nodes up-front, then returns scores that nudge the
+// scheduler toward MMPlacement[thisRank] for this pod.
+func (e *Extender) scoreMuellerMerbach(
+	jobID string,
+	graph *decomp.Graph,
+	latency algorithms.LatencyMatrix,
+	nodeIdx map[string]int,
+	thisRank int,
+	nodeNames []string,
+) extenderv1.HostPriorityList {
+	e.mu.RLock()
+	placement, cached := e.mmPlacements[jobID]
+	e.mu.RUnlock()
+
+	if !cached {
+		input := algorithms.Input{
+			F:        graph,
+			L:        latency,
+			NumNodes: len(latency),
+		}
+		placement = algorithms.MuellerMerbach(input)
+		e.mu.Lock()
+		e.mmPlacements[jobID] = placement
+		e.mu.Unlock()
+	}
+
+	target := -1
+	if thisRank >= 0 && thisRank < len(placement) {
+		target = placement[thisRank]
+	}
+
+	out := make(extenderv1.HostPriorityList, len(nodeNames))
+	for i, name := range nodeNames {
+		out[i] = extenderv1.HostPriority{Host: name}
+		idx, known := nodeIdx[name]
+		if !known {
+			continue
+		}
+		if idx == target {
+			out[i].Score = MaxPriority
+		}
+	}
+	return out
 }
 
 func (e *Extender) scoreNodes(

@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# IMPORTANT: this file is a copy of /scripts/extract_codeaster_graph.py at the
+# top of the repo. It's duplicated here only so that `docker build` with
+# context=docker/codeaster can see it (avoids rebuilding the 90-min codeaster
+# image just to access a sibling script). Keep the two files identical — when
+# editing /scripts/extract_codeaster_graph.py, run:
+#
+#     cp scripts/extract_codeaster_graph.py docker/codeaster/extract_codeaster_graph.py
 """Build a communication graph F(i,j) for a Code_Aster mesh.
 
 Workflow:
