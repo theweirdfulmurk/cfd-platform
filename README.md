@@ -117,7 +117,7 @@ are in `pkg/decomp/openradioss.go` and `pkg/decomp/codeaster.go`.
 
 ```bash
 cd experiment/
-python3 run_benchmark.py    # orchestrates 9 configs × 15 reps = 135 runs
+python3 run_benchmark.py    # orchestrates 3 solvers × 3 schedulers × 6 reps = 54 runs (+18 N=32 scaling)
 python3 analyze_results.py  # Shapiro-Wilk, CI, paired t-test, bootstrap
 ```
 

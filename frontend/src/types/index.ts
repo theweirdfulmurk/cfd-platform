@@ -2,7 +2,7 @@ export type SimulationType = 'openfoam' | 'openradioss' | 'code_aster';
 
 export type SimulationStatus = 'pending' | 'running' | 'completed' | 'failed';
 
-export type SchedulerChoice = 'default' | 'topology-aware';
+export type SchedulerChoice = 'default' | 'random' | 'topology-aware' | 'mueller-merbach';
 
 export interface Simulation {
   ID: string;

@@ -10,7 +10,15 @@ type Simulation struct {
 	Status        SimulationStatus
 	NumProcs      int    // MPI ranks (parallelism level)
 	SchedulerName string // empty = default kube-scheduler; "topology-aware-scheduler" = ours
-	PodName       string
+	// Algorithm is the placement strategy the extender applies, written onto
+	// the MPIJob pods as the scheduler.cfd-platform/algorithm label:
+	// "random" | "greedy" | "mueller-merbach". Empty when SchedulerName is
+	// the default kube-scheduler (extender not consulted). All three
+	// experiment variants share SchedulerName="topology-aware-scheduler" and
+	// differ only by this field — the extender routes on the label, not on
+	// the scheduler name.
+	Algorithm string
+	PodName   string
 	ResultPath    string
 	ConfigPath    string
 	CreatedAt     time.Time

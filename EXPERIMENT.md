@@ -4,9 +4,9 @@
 Состояние от 2026-06-04.
 
 **Финальный план — Сценарий B**:
-- **Main experiment**: N=16, 3 решателя × 3 schedulers × 5 повторов = 45 запусков
-- **Scaling experiment**: N=32 на одном решателе (Yaris Coarse) × 3 schedulers × 5 повторов = 15 запусков
-- **Total: 60 запусков** на платформе [Vast.ai EPYC 9654 m:42009](CLUSTER.md)
+- **Main experiment**: N=16, 3 решателя × 3 schedulers × 6 повторов = 54 запуска
+- **Scaling experiment**: N=32 на одном решателе (Yaris Coarse) × 3 schedulers × 6 повторов = 18 запусков
+- **Total: 72 запуска** на платформе [Vast.ai EPYC 9654 m:42009](CLUSTER.md)
 
 ## Главная гипотеза
 
@@ -32,7 +32,7 @@
 ## Дизайн эксперимента
 
 ```
-3 решателя × 3 schedulers × 5 повторов = 45 запусков
+3 решателя × 3 schedulers × 6 повторов = 54 запуска
 N MPI ranks per job = 16
 ```
 
@@ -40,7 +40,7 @@ N MPI ranks per job = 16
 |---|---|---|
 | Решатели | 3 | три точки на оси плотности F-графа — для **формы** кривой Δ(ρ), не направления |
 | Schedulers | 3 | random (baseline = «kube-scheduler default») + greedy (state-of-the-art) + MM (наше) |
-| Повторов | 5 | минимум для Shapiro-Wilk normality test и paired t-test с разумной power |
+| Повторов | 6 | 6 прогонов на ячейку, 1 warmup отбрасывается, n=5 в анализе — для Shapiro-Wilk normality test и paired t-test с разумной power |
 | **N ranks per job** | **16** | обоснование ниже |
 
 ### Минимальный размер задачи per rank (научное обоснование)
@@ -102,7 +102,7 @@ placement effect нельзя надёжно измерить. **Использ�
 
 ### Дополнительный scaling experiment N=32 (Yaris Coarse)
 
-В рамках Сценария B главный 3×3×5 эксперимент на N=16 дополняется
+В рамках Сценария B главный 3×3×6 эксперимент на N=16 дополняется
 **однонаправленным scaling experiment'ом** на N=32 для одного решателя —
 Yaris Coarse 378K elements.
 
@@ -112,7 +112,7 @@ Yaris Coarse 378K elements.
 
 **Дизайн**:
 ```
-1 решатель (Yaris Coarse) × 3 schedulers × 5 повторов = 15 запусков
+1 решатель (Yaris Coarse) × 3 schedulers × 6 повторов = 18 запусков
 N = 32 MPI ranks per job
 ```
 
@@ -195,49 +195,52 @@ Yaris Coarse 378K по двум причинам:
 Эталонные времена выполнения см. в [BENCHMARKS.md](BENCHMARKS.md).
 Платформа — [Vast.ai m:42009 EPYC 9654](CLUSTER.md), $1.103/час.
 
-### Main experiment (N=16, 45 runs)
+### Main experiment (N=16, 54 runs)
 
-| Решатель | Time/run (16 ranks) | × 15 повторов × 3 schedulers |
+| Решатель | Time/run (16 ranks) | × 6 повторов × 3 schedulers |
 |---|---|---|
-| OpenFOAM motorBike (350K cells) | ~5 мин | ~3.75 ч |
-| OpenRadioss Yaris Coarse (378K elements) | ~1 ч | ~15 ч |
-| Code_Aster perf009 (803K dofs) | ~25 мин | ~6.25 ч |
-| **Compute total** | | **~25 ч** |
+| OpenFOAM motorBike (350K cells) | ~5 мин | ~1.5 ч |
+| OpenRadioss Yaris Coarse (378K elements) | ~1 ч | ~18 ч |
+| Code_Aster perf009 (803K dofs) | ~25 мин | ~7.5 ч |
+| **Compute total** | | **~27 ч** |
 
-### Scaling experiment (N=32, 15 runs Yaris)
+### Scaling experiment (N=32, 18 runs Yaris)
 
-| Решатель | Time/run (32 ranks) | × 5 повторов × 3 schedulers |
+| Решатель | Time/run (32 ranks) | × 6 повторов × 3 schedulers |
 |---|---|---|
-| OpenRadioss Yaris Coarse (378K elements) | ~40 мин (1.5× speedup vs N=16) | **~10 ч** |
+| OpenRadioss Yaris Coarse (378K elements) | ~40 мин (1.5× speedup vs N=16) | **~12 ч** |
 
 ### Total
 
 | Этап | Время | Стоимость |
 |---|---|---|
-| Main 45 runs (N=16) | 25 ч | $27.6 |
-| Scaling 15 runs (N=32 Yaris) | 10 ч | $11.0 |
-| Setup + smoke + debugging | 3-5 ч | $3.3-5.5 |
-| **Итого** | **38-40 ч** | **$42-44 (≈3 800-4 000 ₽)** |
+| Main 54 runs (N=16) | 27 ч | $29.8 |
+| Scaling 18 runs (N=32 Yaris) | 12 ч | $13.2 |
+| Setup + smoke | 3-4 ч | $3.3-4.4 |
+| Debugging buffer | 2-3 ч | $2.2-3.3 |
+| **Итого** | **~44 ч** | **$48-50 (≈3 800-4 000 ₽)** |
 
-⚠️ Из $30 budget на Vast.ai хватает на **~27 часов**. Рекомендуется
-положить дополнительные **$15-20** для безопасности и buffer на отладку.
+⚠️ Из $30 budget на Vast.ai хватает только на **~27 часов**. Поэтому
+рекомендация по дополнительному buffer теперь **более необходима** —
+стоит пополнить баланс до **~$50**.
 
-Альтернатива при строгом $30 budget — только main experiment (N=16, 45
+Альтернатива при строгом $30 budget — только main experiment (N=16, 54
 runs), без scaling demo. Защищается через Xie 2026 reference.
 
 ## Статистическая методология
 
 ### Step 1: проверка нормальности (Shapiro-Wilk)
 
-Для каждой ячейки эксперимента (например, «OpenFOAM + MM, 5 запусков»)
-применяем `scipy.stats.shapiro(samples)` → `p-value`.
+Для каждой ячейки эксперимента (например, «OpenFOAM + MM, n=5 после
+1 warmup») применяем `scipy.stats.shapiro(samples)` → `p-value`.
 
 | p-value | Интерпретация |
 |---|---|
 | p ≥ 0.05 | данные не отличаются от нормальных → используем параметрические тесты |
 | p < 0.05 | отклонение от нормальности → используем непараметрические |
 
-Требует `n ≥ 4`. Поэтому повторов **минимум 5**.
+Требует `n ≥ 4`. Поэтому делаем **6 прогонов на ячейку, 1 warmup
+отбрасываем, n=5 идёт в анализ**.
 
 ### Step 2: доверительный интервал (95%)
 
@@ -257,6 +260,13 @@ runs), без scaling demo. Защищается через Xie 2026 reference.
 | Если данные нормальные | Если ненормальные |
 |---|---|
 | **paired t-test** (`scipy.stats.ttest_rel`) | **Wilcoxon signed-rank** (`scipy.stats.wilcoxon`) |
+
+Тесты **односторонние** (направленная гипотеза «вариант быстрее / даёт
+меньший MPI time»). Это позволяет one-sided Wilcoxon достичь p<0.05 уже
+при n=5 (1/32 = 0.03125), тогда как two-sided упирается в 0.0625 и
+значимым стать не может. Primary-метрики — paired t-test + bootstrap CI
+(оба работают при n=5); one-sided Wilcoxon — robustness-backup. Прежняя
+проблема «n=3, Wilcoxon не может быть значимым» этим **снята**.
 
 Реализовано в `experiment/analyze_results.py:paired_tests()`.
 
@@ -296,9 +306,9 @@ spec:
 |---|---|
 | CPU jitter на burstable/shared CPU | **dedicated CPU** instances (см. [CLUSTER.md](CLUSTER.md)) |
 | CPU throttling через CFS hard limits | **никаких CPU limits** в MPIJob spec (см. выше) |
-| Network jitter | n=5 повторов на ячейку |
+| Network jitter | 6 прогонов на ячейку (n=5 в анализе после 1 warmup) |
 | Различия кластеров между запусками | один кластер, фиксированный config, заранее warmup |
-| Auto-correlation последовательных запусков | warmup — первые **2 повтора отбрасываем** |
+| Auto-correlation последовательных запусков | warmup — первый **1 повтор отбрасываем** |
 | Subjective выбор кейсов | три **независимо признанных** benchmark (motorBike / Yaris Coarse CCSA-NHTSA / perf009 EDF) |
 | Cherry-picking результатов | весь сырой CSV публикуется вместе с дипломом |
 | Bootstrap nondeterminism | `random_state=42` в `scipy.stats.bootstrap()` (TODO) |
@@ -315,19 +325,19 @@ Xie 2026 на dedicated CPU (c5.xlarge non-burstable) получает **std dev
 
 | Компонент | Где | Состояние |
 |---|---|---|
-| Запуск 45 jobs через backend | `experiment/run_benchmark.py` | написан, не тестировался на реальном кластере |
+| Запуск 54 jobs через backend | `experiment/run_benchmark.py` | написан, не тестировался на реальном кластере |
 | Парсинг mpiP отчётов | `experiment/parse_mpip.py` | написан, тестировался на smoke-отчёте |
 | Shapiro-Wilk + CI + paired tests | `experiment/analyze_results.py` | написан, не запускался на реальных данных |
 | Bootstrap random_state | `analyze_results.py:ci_for_cell()` | **TODO** добавить `random_state=42` |
-| Warmup-отбрасывание (WARMUP_REPS=2) | оба скрипта | реализовано |
+| Warmup-отбрасывание (WARMUP_REPS=1) | оба скрипта | реализовано |
 
 ## Альтернативные планы (если время поджимает)
 
 | План | Запусков | Compute | Защита |
 |---|---|---|---|
-| **Базовый 3×3×5 ⭐** | 45 | 22.5 ч / 11 ч parallel | strong, все стандарты соблюдены |
+| **Базовый 3×3×6 ⭐** | 54 | 27 ч / 11 ч parallel | strong, все стандарты соблюдены |
 | Stratified 3+3+7 reps (sparse/med/dense) × 3 sched | 39 | 19.5 ч / 10 ч parallel | strong, defensible как «adaptive design» |
 | Pilot 3×3×3 | 27 | 13.5 ч / 7 ч parallel | weaker — Shapiro на грани, t-test marginal |
 
-По умолчанию идём **базовым 3×3×5 = 45**. Stratified — если хотим
+По умолчанию идём **базовым 3×3×6 = 54**. Stratified — если хотим
 сэкономить compute без потери силы на dense (где H₁ ожидается значимой).

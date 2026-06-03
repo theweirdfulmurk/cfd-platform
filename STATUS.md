@@ -97,8 +97,8 @@ find / -name "*.mpiP" 2>/dev/null | head -1 | xargs -r cat | head -40
 | **Vast.ai instance m:42009** (EPYC 9654, 192 phys cores, 515 GB RAM, $1.103/hr) | waiting on Mark to RENT | minutes |
 | Setup script `scripts/cluster-up.sh` (Docker + kind + tc qdisc + MPI Operator + scheduler + backend) | not written | ~1 day after VM live |
 | End-to-end smoke through backend → MPIJob on Vast.ai kind cluster | not started | 1 day after setup |
-| **Main benchmark — 45 jobs** (3 solvers × 3 schedulers × 5 reps, N=16) | not started | ~25 hours of compute |
-| **Scaling demo — 15 jobs** (Yaris × 3 schedulers × 5 reps, N=32) | not started | ~10 hours of compute |
+| **Main benchmark — 54 jobs** (3 solvers × 3 schedulers × 6 reps, N=16) | not started | ~27 hours of compute |
+| **Scaling demo — 18 jobs** (Yaris × 3 schedulers × 6 reps, N=32) | not started | ~12 hours of compute |
 | `analyze_results.py` over real data → Table 4.1 + scaling chart | not started | 1-2 days after numbers land |
 | Thesis text — chapters 1-5 (drafts из md уже есть) | partially mapped из md | ~2 weeks |
 | Defence slides | not started | last week |

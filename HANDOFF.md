@@ -12,14 +12,15 @@ Claude мог продолжить с того же места без потер
   для параллельных CFD/FEM расчётов.
 - **Весь код написан** (backend, scheduler, F-graph extraction, mpiP
   integration, 4 Docker образа в GHCR). Тесты зелёные.
-- **Сценарий B утверждён**: main эксперимент N=16 (45 runs) + scaling
-  demo N=32 на Yaris (15 runs) = 60 total.
+- **Сценарий B утверждён**: main эксперимент N=16 (54 runs) + scaling
+  demo N=32 на Yaris (18 runs) = 72 total.
 - **Инфраструктура выбрана**: **Vast.ai m:42009** — bare metal VM на
   AMD EPYC 9654 (Genoa, 192 phys cores exclusive, 515 GB RAM, $1.103/hr).
 - **Сейчас Mark в момент нажатия RENT** на Vast.ai. После provisioning
   нужно SSH в VM и развернуть кластер.
-- **Деньги**: $30 на Vast.ai (хватит на ~27 часов), Mark возможно
-  положит ещё $15-20 для safety buffer.
+- **Деньги**: $30 на Vast.ai (хватит лишь на ~27 ч — только ~N=16
+  compute), Mark должен положить ещё ~$20 (top up to ~$50) для всего
+  плана 72 runs + buffer.
 - **Бюджет dipl: 80-110 страниц, оценка «отлично с запасом» (70% easy 5,
   25% defended 5, 5% «4» если результат слабый).
 
@@ -161,11 +162,11 @@ ranks, а не из артефактов кластера.
 ### Experiment scripts (`experiment/`)
 
 ✅ Готовы, не запускались на реальных данных:
-- `run_benchmark.py` — REPS_PER_CONFIG=5, NUM_PROCS=16, WARMUP_REPS=2,
+- `run_benchmark.py` — REPS_PER_CONFIG=6, NUM_PROCS=16, WARMUP_REPS=1,
   SCHEDULERS=["random-scheduler","topology-aware","mueller-merbach"]
 - `parse_mpip.py` — парсер mpiP отчётов
-- `analyze_results.py` — Shapiro-Wilk + Student-t/Bootstrap CI +
-  paired tests
+- `analyze_results.py` — paired t-test + Bootstrap CI (primary) +
+  one-sided Wilcoxon (robustness backup), n=5 в анализе после 1 warmup
 
 ## Финальная инфраструктура — Vast.ai m:42009
 
@@ -233,23 +234,23 @@ Docker template. Это даёт полный root + privileged + nested contain
 | Этап | Время | Стоимость |
 |---|---|---|
 | Setup + smoke | 3-4 ч | $3.3-4.4 |
-| Compute N=16 (45 runs) | ~25 ч | $27.6 |
-| Compute N=32 (15 runs Yaris) | ~10 ч | $11.0 |
+| Compute N=16 (54 runs) | ~27 ч | $29.8 |
+| Compute N=32 (18 runs Yaris) | ~12 ч | $13.2 |
 | Debugging buffer | 2-3 ч | $2.2-3.3 |
-| **Total expected** | **~40 ч** | **$44-46 ≈ 4 000 ₽** |
+| **Total expected** | **~44 ч** | **$48-50 ≈ 4 400 ₽** |
 
-Из $30 хватит на ~27 ч — рекомендуется положить ещё $15-20.
+Из $30 хватит на ~27 ч (только ~N=16 compute) — рекомендуется положить ещё ~$20 (top up to ~$50).
 Если строго $30 — отказаться от N=32, только main N=16 (укладывается).
 
 ## Сценарий B — окончательный план эксперимента
 
-**Main experiment (N=16, 45 runs)**:
-- 3 решателя × 3 schedulers × 5 reps = 45
+**Main experiment (N=16, 54 runs)**:
+- 3 решателя × 3 schedulers × 6 reps = 54 (n=5 в анализе после 1 warmup)
 - motorBike 350K (sparse) + Yaris Coarse 378K (medium) + perf009 803K (dense)
 - random / greedy / mueller-merbach
 
-**Scaling experiment (N=32, 15 runs)**:
-- 1 решатель (Yaris Coarse) × 3 schedulers × 5 reps = 15
+**Scaling experiment (N=32, 18 runs)**:
+- 1 решатель (Yaris Coarse) × 3 schedulers × 6 reps = 18 (n=5 в анализе после 1 warmup)
 - Цель: показать тренд gain MM vs random при увеличении N
 - Yaris Coarse 378K / 32 = 11 812 elements/rank — на нижней границе
   efficient zone (LS-DYNA Conference 2017: 60% efficiency floor at
@@ -259,7 +260,7 @@ Docker template. Это даёт полный root + privileged + nested contain
 - motorBike 350K / 32 = 10 937 cells/rank — **ниже** 20K efficient
   threshold (OpenFOAM docs). MPI overhead доминирует.
 - perf009 / 32 = 25 094 dofs/rank ещё в зоне MUMPS, **можно бы**, но
-  бюджет +10ч = $11 дополнительно.
+  бюджет +12ч = $13.2 дополнительно.
 
 ## Что ещё осталось сделать
 
@@ -280,7 +281,7 @@ Docker template. Это даёт полный root + privileged + nested contain
    - Apply k8s manifests (namespace, RBAC, PVCs, scheduler, backend)
 6. **Claude** делает E2E smoke test (один MPIJob через backend, проверка
    extraction → MPIJob → mpiP report).
-7. **Claude** запускает 45 + 15 runs (через `experiment/run_benchmark.py`).
+7. **Claude** запускает 54 + 18 runs (через `experiment/run_benchmark.py`).
 8. **Claude** запускает `analyze_results.py` → Table 5.1 + scaling chart.
 9. **Mark** пишет текст диплома (chapters 1-5).
 
@@ -511,7 +512,7 @@ Docker template. Это даёт полный root + privileged + nested contain
 > k8s/simulation_manager.go.»
 
 ### Scaling experiment защита
-> «Главный 3×3×5 эксперимент на N=16 ranks дополняется однонаправленным
+> «Главный 3×3×6 эксперимент на N=16 ranks дополняется однонаправленным
 > scaling experiment'ом на N=32 для OpenRadioss Yaris Coarse. Цель —
 > independent verification empirical trend, наблюдавшегося в Xie 2026:
 > 3% выигрыш scheduler optimization на 4 ranks → 20% на 16 ranks. Наша
@@ -613,9 +614,9 @@ k8s/
   examples/openfoam-mpijob.yaml — пример MPIJob с replicas=16
 
 experiment/
-  run_benchmark.py    — 3×3×5 + N=32 scaling runs
+  run_benchmark.py    — 3×3×6 + N=32 scaling runs
   parse_mpip.py       — парсит mpiP отчёты
-  analyze_results.py  — Shapiro-Wilk + Student-t / Bootstrap + paired tests
+  analyze_results.py  — paired t-test / Bootstrap + one-sided Wilcoxon backup
 
 .github/workflows/
   build-images.yml    — matrix build 4 образа в GHCR
@@ -642,7 +643,7 @@ HANDOFF.md         — этот документ
    ↳ Все 4 (openfoam, openradioss, codeaster, scheduler)
 
 2. User: commit + push origin main
-   ↳ Local есть несоmitted: md updates, run_benchmark.py REPS_PER_CONFIG=5
+   ↳ Local есть несоmitted: md updates, run_benchmark.py REPS_PER_CONFIG=6
 
 3. User: RENT m:42009 на Vast.ai (в процессе)
    ↳ Положить $15-20 запаса опционально
@@ -656,14 +657,14 @@ HANDOFF.md         — этот документ
 5. Claude: E2E smoke test первого MPIJob
    ↳ Extraction Job → MPIJob → mpiP report через results PVC
 
-6. Claude: запустить 45 + 15 runs
+6. Claude: запустить 54 + 18 runs
    ↳ Main: experiment/run_benchmark.py с NUM_PROCS=16
    ↳ Scaling: модификация для NUM_PROCS=32 на Yaris
 
 7. Claude: analyze_results.py → Table 5.1 + scaling chart
-   ↳ Shapiro-Wilk на каждой ячейке
-   ↳ Student-t или Bootstrap CI
-   ↳ Paired t-test или Wilcoxon между schedulers
+   ↳ n=5 на ячейку (после отбрасывания 1 warmup из 6 прогонов)
+   ↳ Primary: paired t-test + Bootstrap CI (оба ОК при n=5)
+   ↳ Backup: one-sided Wilcoxon (directional, p<0.05 достижим при n=5: 1/32=0.03125)
 
 8. User: написать текст диплома (chapters 1-5)
    ↳ Base — md-файлы (RELATED_WORK / EXTRACTION / EXPERIMENT / BENCHMARKS)

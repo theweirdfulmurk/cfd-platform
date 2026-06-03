@@ -39,6 +39,7 @@ func (uc *SimulationUseCase) CreateWithFile(
 	simType domain.SimulationType,
 	numProcs int,
 	schedulerName string,
+	algorithm string,
 	file io.Reader,
 	filename string,
 ) (*domain.Simulation, error) {
@@ -60,6 +61,7 @@ func (uc *SimulationUseCase) CreateWithFile(
 		Status:        domain.SimStatusPending,
 		NumProcs:      numProcs,
 		SchedulerName: schedulerName,
+		Algorithm:     algorithm,
 		PodName:       fmt.Sprintf("sim-%s", simID),
 		ResultPath:    fmt.Sprintf("results/%s", simID),
 		ConfigPath:    simID, // relative path inside the PVC

@@ -4,13 +4,26 @@
 Per the head-of-department's requirement we report:
     * Shapiro-Wilk normality check on each cell
     * 95% confidence interval — Student-t when normal, bootstrap otherwise
-    * Paired t-test between (default, topology-aware) per solver
+    * Paired tests between the three placement algorithms per solver,
+      one-sided (variant faster than baseline) per the directional H1:
+        - greedy (topology-aware) vs random  (baseline)
+        - mueller-merbach        vs random   ← primary hypothesis H1
+        - mueller-merbach        vs greedy
     * Wilcoxon signed-rank as a non-parametric backup
+
+Sampling: run_benchmark.py does 6 reps per cell; the first (cold-start)
+rep is dropped here, leaving n=5 for every test.
+
+The scheduler names match what run_benchmark.py writes into the `scheduler`
+column: random-scheduler / topology-aware (= greedy) / mueller-merbach.
+
+A monotonic increase of the mm_vs_random gain across
+OpenFOAM (sparse) -> OpenRadioss (medium) -> Code_Aster (dense), with
+p < 0.05 on the dense solver, confirms the thesis hypothesis.
 
 Output:
     * results/summary.csv — solver, scheduler, n, mean, ci_low, ci_high
-    * results/paired_tests.csv — solver, t_stat, p_value, wilcoxon_p
-    * results/figure.png — wall_time and mpi_time bar chart (optional)
+    * results/paired_tests.csv — solver, comparison, gain_pct, t_p, wilcoxon_p
 """
 
 from __future__ import annotations
@@ -31,7 +44,17 @@ except ImportError:
     sys.exit(2)
 
 ALPHA = 0.05
-WARMUP_REPS = 2
+WARMUP_REPS = 1  # drop only the cold-start rep; REPS_PER_CONFIG=6 -> n=5
+BOOTSTRAP_SEED = 42  # deterministic bootstrap CIs (EXPERIMENT.md requirement)
+
+# Pairwise comparisons, named for the output CSV. Each is (label, baseline,
+# variant); gain_pct > 0 means the variant is faster than the baseline.
+# Scheduler strings match run_benchmark.py's SCHEDULERS list.
+COMPARISONS = [
+    ("greedy_vs_random", "random-scheduler", "topology-aware"),
+    ("mm_vs_random", "random-scheduler", "mueller-merbach"),
+    ("mm_vs_greedy", "topology-aware", "mueller-merbach"),
+]
 
 
 def load_runs(path: Path) -> list[dict]:
@@ -87,21 +110,44 @@ def ci_for_cell(samples: list[float]) -> tuple[float, float, float, str]:
         confidence_level=1 - ALPHA,
         n_resamples=5000,
         method="percentile",
+        random_state=BOOTSTRAP_SEED,
     )
     return mean, float(boot.confidence_interval.low), float(boot.confidence_interval.high), "bootstrap-CI"
 
 
-def paired_tests(default: list[float], topo: list[float]) -> dict:
-    """Compare topo vs default. Pairs assumed by repetition index order."""
-    if len(default) != len(topo) or len(default) < 3:
-        return {"t_stat": "", "t_p": "", "wilcoxon_p": "", "n_pairs": len(default)}
-    t_stat, t_p = stats.ttest_rel(topo, default)
-    w_stat, w_p = stats.wilcoxon(topo, default)
+def paired_tests(baseline: list[float], variant: list[float]) -> dict:
+    """Compare variant against baseline, paired by repetition index order.
+
+    gain_pct > 0 means the variant is faster (lower metric) than the baseline.
+    """
+    n = min(len(baseline), len(variant))
+    blank = {"n_pairs": n, "mean_baseline": "", "mean_variant": "",
+             "gain_pct": "", "t_stat": "", "t_p": "", "wilcoxon_p": ""}
+    if n < 3 or len(baseline) != len(variant):
+        return blank
+
+    mean_b = statistics.mean(baseline)
+    mean_v = statistics.mean(variant)
+    gain = 100.0 * (mean_b - mean_v) / mean_b if mean_b else 0.0
+    # One-sided tests: the hypothesis is directional (variant is FASTER, i.e.
+    # lower metric, than baseline). One-sided is required for Wilcoxon to be
+    # able to reach p<0.05 at n=5 at all (two-sided bottoms out at 0.0625).
+    # To revert to two-sided, drop the alternative="less" arguments.
+    t_stat, t_p = stats.ttest_rel(variant, baseline, alternative="less")
+    try:
+        _, w_p = stats.wilcoxon(variant, baseline, alternative="less")
+        w_p = f"{w_p:.4g}"
+    except ValueError:
+        # all-zero differences or sample too small for Wilcoxon
+        w_p = ""
     return {
+        "n_pairs": n,
+        "mean_baseline": f"{mean_b:.3f}",
+        "mean_variant": f"{mean_v:.3f}",
+        "gain_pct": f"{gain:.2f}",
         "t_stat": f"{t_stat:.4f}",
         "t_p": f"{t_p:.4g}",
-        "wilcoxon_p": f"{w_p:.4g}",
-        "n_pairs": len(default),
+        "wilcoxon_p": w_p,
     }
 
 
@@ -111,7 +157,8 @@ def main() -> int:
     ap.add_argument("--runs", type=Path, default=Path("results/runs.csv"))
     ap.add_argument("--out-summary", type=Path, default=Path("results/summary.csv"))
     ap.add_argument("--out-tests", type=Path, default=Path("results/paired_tests.csv"))
-    ap.add_argument("--metric", choices=("wall_time_s", "mpi_time_s"), default="wall_time_s")
+    # MPI time is the thesis primary metric (mpiP report); wall time is secondary.
+    ap.add_argument("--metric", choices=("mpi_time_s", "wall_time_s"), default="mpi_time_s")
     args = ap.parse_args()
 
     rows = load_runs(args.runs)
@@ -136,16 +183,20 @@ def main() -> int:
 
     with args.out_tests.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["solver", "metric", "n_pairs", "t_stat", "t_p", "wilcoxon_p"])
+        w.writerow(["solver", "metric", "comparison", "n_pairs",
+                    "mean_baseline", "mean_variant", "gain_pct",
+                    "t_stat", "t_p", "wilcoxon_p"])
         solvers = sorted({s for (s, _) in groups})
         for solver in solvers:
-            default = sorted(groups.get((solver, "default"), []), key=lambda r: r["rep"])
-            topo = sorted(groups.get((solver, "topology-aware"), []), key=lambda r: r["rep"])
-            def_s = [r[args.metric] for r in default if r.get(args.metric) is not None]
-            topo_s = [r[args.metric] for r in topo if r.get(args.metric) is not None]
-            r = paired_tests(def_s, topo_s)
-            w.writerow([solver, args.metric, r["n_pairs"],
-                        r["t_stat"], r["t_p"], r["wilcoxon_p"]])
+            for label, base_sched, var_sched in COMPARISONS:
+                base = sorted(groups.get((solver, base_sched), []), key=lambda r: r["rep"])
+                var = sorted(groups.get((solver, var_sched), []), key=lambda r: r["rep"])
+                base_s = [r[args.metric] for r in base if r.get(args.metric) is not None]
+                var_s = [r[args.metric] for r in var if r.get(args.metric) is not None]
+                res = paired_tests(base_s, var_s)
+                w.writerow([solver, args.metric, label, res["n_pairs"],
+                            res["mean_baseline"], res["mean_variant"], res["gain_pct"],
+                            res["t_stat"], res["t_p"], res["wilcoxon_p"]])
 
     print(f"wrote {args.out_summary} and {args.out_tests}", file=sys.stderr)
     return 0

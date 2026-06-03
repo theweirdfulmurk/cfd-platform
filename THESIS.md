@@ -8,8 +8,8 @@ communication delays для параллельных инженерных рас
 ## TL;DR
 
 - **Целевой объём**: 95-110 страниц + приложения 10-15 страниц.
-- **Эксперимент**: Сценарий B = N=16 main (45 runs) + N=32 scaling demo
-  для Yaris (15 runs) = **60 runs total** на Vast.ai EPYC 9654.
+- **Эксперимент**: Сценарий B = N=16 main (54 runs) + N=32 scaling demo
+  для Yaris (18 runs) = **72 runs total** на Vast.ai EPYC 9654.
 - **Оценка силы**: сильная BMSTU bachelor's thesis, на «отлично» с
   запасом (~70% вероятность лёгкого «5», ~25% после некоторой защиты).
 - **Материала больше чем нужно** — главный риск перебор, не недостаток.
@@ -33,7 +33,7 @@ communication delays для параллельных инженерных рас
 | Системная сложность | средняя | средняя | **высокая** (multi-component K8s + HPC stack) |
 | Industry relevance | средняя | средняя | **высокая** (Boeing/Airbus/EDF tier solvers) |
 | Novelty | средне-низкая (вариация reward) | низкая | **низко-средняя** (applied, не fundamental) |
-| Экспериментальная строгость | средне-сильная (bootstrap CI) | низкая (sanity checks) | **сильная** (45 runs + Shapiro-Wilk + Student-t) |
+| Экспериментальная строгость | средне-сильная (bootstrap CI) | низкая (sanity checks) | **сильная** (54 runs + одностор. тесты при n=5 + Student-t) |
 | Literature grounding | хорошее | удовлетворительное | **сильное** (PRACE, ESI, Xie 2026) |
 
 **Итог сравнения**: наша работа ≈ Наумовой по силе (другой профиль —
@@ -106,8 +106,10 @@ communication delays для параллельных инженерных рас
 - **3 решателя**: представляют три класса F-graph density (sparse /
   medium / dense).
 - **3 scheduler алгоритма**: random (baseline) / greedy / Müller-Merbach.
-- **5 повторов**: минимум для Shapiro-Wilk + Student-t с adequate power.
-- **45 запусков** = 3 × 3 × 5.
+- **6 прогонов на ячейку** (n=5 в анализе после 1 warmup): достаточно
+  для Shapiro-Wilk + paired t-test + bootstrap CI, а односторонний
+  Wilcoxon достигает p<0.05 при n=5 (1/32 = 0.03125).
+- **54 запуска** = 3 × 3 × 6.
 
 #### 2.4. Granularity per rank — научное обоснование
 - ESI Group HPC documentation: 50K-200K cells/core optimal для OpenFOAM,
@@ -125,6 +127,10 @@ communication delays для параллельных инженерных рас
 - Shapiro-Wilk нормальность → выбор Student-t или Bootstrap CI.
 - Welch's t-test для unequal variance.
 - 95% CI для разностей.
+- Односторонние тесты (направленная гипотеза «вариант быстрее / ниже
+  MPI time»): primary = paired t-test + bootstrap CI (оба корректны при
+  n=5), односторонний Wilcoxon = robustness backup (достигает p<0.05
+  при n=5: 1/32 = 0.03125; двусторонний упирается в 0.0625).
 
 ### Глава 3. Архитектура системы (20-25 страниц)
 
@@ -228,16 +234,19 @@ communication delays для параллельных инженерных рас
 #### 5.3. Методология выполнения
 
 **Main experiment** (N=16):
-- 45 запусков (3 solvers × 3 schedulers × 5 reps).
+- 54 запуска (3 solvers × 3 schedulers × 6 reps; n=5 в анализе после
+  1 warmup).
 - Randomized execution order для минимизации systematic bias.
-- Statistical pipeline: Shapiro-Wilk normality → Student-t или Bootstrap CI.
+- Statistical pipeline: Shapiro-Wilk normality → Student-t или Bootstrap CI
+  (односторонние тесты, направленная гипотеза).
 
 **Scaling experiment** (N=32, Yaris Coarse):
-- 15 запусков (1 solver × 3 schedulers × 5 reps).
+- 18 запусков (1 solver × 3 schedulers × 6 reps; n=5 в анализе после
+  1 warmup).
 - Тот же кластер (36 нод вместо 24), та же методология.
 - Цель: показать тренд gain MM vs random при увеличении N.
 
-mpiP report collection через results PVC. Total compute ~35 часов.
+mpiP report collection через results PVC. Total compute ~39 часов.
 
 #### 5.4. Результаты
 
@@ -274,7 +283,7 @@ mpiP report collection через results PVC. Total compute ~35 часов.
 
 ### Приложения (10-15 страниц)
 
-- Полные таблицы 45 запусков (MPI time, std dev, distribution).
+- Полные таблицы 54 запусков (MPI time, std dev, distribution).
 - Полные графики per-solver.
 - Скрипты развёртывания (cluster-up.sh).
 - F-graph examples (визуализация для motorBike, Yaris, perf009).
@@ -294,9 +303,10 @@ mpiP report collection через results PVC. Total compute ~35 часов.
 
 ## Сильные стороны защиты
 
-1. **Reproducibility железная**: dedicated CPU + tc qdisc + 5 повторов
-   + statistical tests + open-source реализация → результат воспроизводим
-   любым другим researcher.
+1. **Reproducibility железная**: dedicated CPU + tc qdisc + 6 прогонов
+   на ячейку (n=5 в анализе после 1 warmup) + statistical tests
+   + open-source реализация → результат воспроизводим любым другим
+   researcher.
 2. **NHTSA Yaris reference**: «government-validated automotive crash
    benchmark» в защитной речи звучит **очень солидно**.
 3. **N=16 ranks + Xie 2026**: «на уровне state-of-the-art concurrent
@@ -362,4 +372,4 @@ phase.
 после эксперимента: **дисциплинированная структурированная запись** +
 выкидывание лишнего при сокращении до 100 страниц.
 
-Готовы к финальной фазе после deployment + 45-run experiment.
+Готовы к финальной фазе после deployment + 54-run experiment.

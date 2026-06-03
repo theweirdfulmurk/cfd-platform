@@ -46,7 +46,7 @@ Pod Vertical Scaling (KEP-1287, GA в v1.35) для resize CPU без restart.
 **Что заимствуем методологически**:
 - **Не использовать CPU limits** (Burstable QoS, requests-only) — критично для MPI
 - **Non-burstable instances** для reproducible measurements (наш выбор — Vast.ai m:42009 с EPYC 9654, exclusive 384/384 CPU + 515/515 GB RAM)
-- **3+ runs per config** (мы делаем 5 — строже)
+- **3+ runs per config** (мы делаем 6 прогонов, n=5 в анализе после 1 warmup — строже)
 - AWS EFS = ReadWriteMany NFS, у нас ReadWriteMany shared storage внутри VM через HostPath / NFS-like
 
 **Где наша работа продолжает**: Xie фиксирует placement (стандартный one-rank-per-vCPU) и варьирует **CPU allocation**. Мы фиксируем CPU allocation и варьируем **placement по F-графу**. Это **complementary contributions**.
@@ -206,7 +206,7 @@ SC'10, IEEE.
 |---|---|---|
 | Non-burstable instances | std dev <2% vs 2× variability на burstable | Vast.ai m:42009 — EPYC 9654 exclusive 384/384 CPU + 515/515 GB RAM |
 | Burstable QoS (no CPU limits) | hard limits = 78× slowdown через CFS throttling | requests-only в наших MPIJob манифестах |
-| ≥3 runs per config | reproducibility statistical | **5 runs** в нашем плане |
+| ≥3 runs per config | reproducibility statistical | **6 прогонов (n=5 в анализе)** в нашем плане |
 | AWS EFS (ReadWriteMany NFS) | shared simulation directories | ReadWriteMany shared storage внутри Vast.ai VM (HostPath / NFS-like) |
 | OpenMPI 4.1.x | стандартный, validated | у нас тоже 4.1 в openfoam/openradioss; 2.1 в codeaster |
 | k3s v1.35 | lightweight, GA для In-Place scaling | **kind** (lightweight K8s через Docker) внутри Vast.ai VM |

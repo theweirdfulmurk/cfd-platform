@@ -161,9 +161,11 @@ perf009 имеет ~10× больше DoF чем perf010. Поскольку MUM
 
 ## Влияние на наш compute budget
 
+> **Примечание**: таблицы вариантов A/B/C/D ниже — исторические (до перехода на Vast.ai, до финального числа повторов) и приведены для контекста; актуальный compute budget см. в [EXPERIMENT.md](EXPERIMENT.md) / [CLUSTER.md](CLUSTER.md).
+
 Расчёты ниже учитывают **N=16 ranks** и итоговую инфраструктуру
 (Timeweb VPS 24 phys cores + kind + tc, ~55 ₽/час).
-3 × 3 × 5 = **45 запусков** (см. [EXPERIMENT.md](EXPERIMENT.md)).
+3 × 3 × 6 = **54 запуска** (см. [EXPERIMENT.md](EXPERIMENT.md)).
 
 ### Вариант A — большие iconic benchmarks
 

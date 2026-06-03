@@ -27,22 +27,14 @@ var MPIJobGVR = schema.GroupVersionResource{
 
 // LabelAlgorithm mirrors the constant in scheduler/plugin/plugin.go —
 // the extender reads this off the Pod to decide which placement strategy
-// to apply (random / greedy / mueller-merbach).
+// to apply (random / greedy / mueller-merbach). The value comes from
+// Simulation.Algorithm, set by the HTTP handler.
 const LabelAlgorithm = "scheduler.cfd-platform/algorithm"
 
-// algorithmFromSchedulerName maps the SchedulerName field of a Simulation
-// to the algorithm label written onto Pods. SchedulerName is the public
-// API field selected by the user / benchmark orchestrator.
-func algorithmFromSchedulerName(name string) string {
-	switch name {
-	case "random-scheduler", "random":
-		return "random"
-	case "mueller-merbach", "mm-scheduler", "mm":
-		return "mueller-merbach"
-	default:
-		return "greedy"
-	}
-}
+// mpiPLib is the LD_PRELOAD profiling library baked into every solver image
+// (see docker/*/Dockerfile). Loading it into each rank makes mpiP emit a
+// report at MPI_Finalize; the report directory is set via MPIP="-f <dir>".
+const mpiPLib = "/opt/mpiP/lib/libmpiP.so"
 
 // solverImage returns the container image for a given solver type. Images
 // are produced by the GH Actions workflow in .github/workflows/build-images.yml
@@ -62,28 +54,41 @@ func solverImage(t domain.SimulationType) string {
 // solverCommand returns the launcher command for the MPIJob *run* phase,
 // assuming extractionCommand() already produced the decomposed mesh
 // (processor*/) and the F-graph edgelist in /scheduler-graphs/<id>.edgelist.
-// Each solver only does its `mpirun ...` line here.
-func solverCommand(t domain.SimulationType, configPath string, np int) []string {
+//
+// Each rank is profiled with mpiP: LD_PRELOAD pulls in libmpiP.so and
+// MPIP="-f /results/<simID>" directs the report into the shared results PVC.
+// Both vars are exported to every rank with `mpirun -x`, so the report that
+// rank 0 writes at MPI_Finalize lands at /results/<simID>/*.mpiP — exactly
+// where experiment/run_benchmark.py:fetch_mpip() looks for it. The trailing
+// cp is a fallback for the case where mpiP ignores -f and writes to rank 0's
+// cwd (the case dir, also on a shared PVC).
+//
+// Without this LD_PRELOAD no .mpiP report is produced and the experiment's
+// primary metric (MPI time) cannot be measured.
+func solverCommand(t domain.SimulationType, simID, configPath string, np int) []string {
 	caseDir := "/pvc/simulations/" + configPath
+	resultsDir := "/results/" + simID
+
+	var run string
 	switch t {
 	case domain.SimTypeOpenFOAM:
-		return []string{
-			"/bin/bash", "-c",
-			fmt.Sprintf("cd %s && mpirun -np %d simpleFoam -parallel", caseDir, np),
-		}
+		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d simpleFoam -parallel", np)
 	case domain.SimTypeOpenRadioss:
-		return []string{
-			"/bin/bash", "-c",
-			fmt.Sprintf("cd %s && mpirun -np %d engine_linux64_gf_ompi -input *.rad",
-				caseDir, np),
-		}
+		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d engine_linux64_gf_ompi -input *.rad", np)
 	case domain.SimTypeCodeAster:
-		return []string{
-			"/bin/bash", "-c",
-			fmt.Sprintf("cd %s && mpirun -np %d as_run *.export", caseDir, np),
-		}
+		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d as_run *.export", np)
+	default:
+		return nil
 	}
-	return nil
+
+	script := fmt.Sprintf(
+		"set -e; mkdir -p %s; cd %s; "+
+			"export LD_PRELOAD=%s; export MPIP=\"-f %s\"; "+
+			"%s; "+
+			"cp -f *.mpiP %s/ 2>/dev/null || true",
+		resultsDir, caseDir, mpiPLib, resultsDir, run, resultsDir,
+	)
+	return []string{"/bin/bash", "-c", script}
 }
 
 // extractionCommand returns the bash command for the *pre-MPIJob* extraction
@@ -307,7 +312,7 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 							"labels": map[string]any{
 								"mpi-job-id":   sim.ID,
 								"mpi-role":     "launcher",
-								LabelAlgorithm: algorithmFromSchedulerName(sim.SchedulerName),
+								LabelAlgorithm: sim.Algorithm,
 							},
 						},
 						"spec": map[string]any{
@@ -316,7 +321,7 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 								map[string]any{
 									"name":      "solver",
 									"image":     image,
-									"command":   toAnySlice(solverCommand(sim.Type, sim.ConfigPath, np)),
+									"command":   toAnySlice(solverCommand(sim.Type, sim.ID, sim.ConfigPath, np)),
 									"resources": launcherResources(),
 									"volumeMounts": []any{
 										map[string]any{
@@ -341,7 +346,7 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 							"labels": map[string]any{
 								"mpi-job-id":   sim.ID,
 								"mpi-role":     "worker",
-								LabelAlgorithm: algorithmFromSchedulerName(sim.SchedulerName),
+								LabelAlgorithm: sim.Algorithm,
 							},
 						},
 						"spec": map[string]any{

@@ -14,7 +14,7 @@ export function CreateSimulation({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('');
   const [type, setType] = useState<SimulationType>('openfoam');
   const [numProcs, setNumProcs] = useState<number>(16);
-  const [scheduler, setScheduler] = useState<SchedulerChoice>('topology-aware');
+  const [scheduler, setScheduler] = useState<SchedulerChoice>('mueller-merbach');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -84,7 +84,9 @@ export function CreateSimulation({ onCreated }: { onCreated: () => void }) {
         <div className="form-group">
           <label>Scheduler</label>
           <select value={scheduler} onChange={e => setScheduler(e.target.value as SchedulerChoice)}>
-            <option value="topology-aware">Topology-aware (ours)</option>
+            <option value="mueller-merbach">Müller-Merbach (ours, offline QAP)</option>
+            <option value="topology-aware">Greedy (topology-aware)</option>
+            <option value="random">Random (baseline)</option>
             <option value="default">Default kube-scheduler</option>
           </select>
         </div>

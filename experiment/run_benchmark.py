@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrate the 9-config × 15-repetition benchmark.
+"""Orchestrate the 9-config × 6-repetition main benchmark (54 runs, N=16).
 
 For each (solver, scheduler) combination this script:
 
@@ -8,7 +8,7 @@ For each (solver, scheduler) combination this script:
     3. Collects wall-clock time, mpiP output, and exit code.
     4. Writes one CSV row per run to results/runs.csv.
 
-The first 2 repetitions per config are dropped as warm-up.
+The first repetition per config is dropped as warm-up, leaving n=5.
 
 Usage:
     run_benchmark.py --backend http://cfd-platform-backend.cfd-platform --cases cases/
@@ -34,11 +34,12 @@ SOLVERS = ["openfoam", "openradioss", "code_aster"]
 #   mueller-merbach    → mueller-merbach
 SCHEDULERS = ["random-scheduler", "topology-aware", "mueller-merbach"]
 
-# 3 solvers × 3 schedulers × 5 reps = 45 main runs (N=16).
-# Plus optional N=32 scaling demo on Yaris Coarse (15 runs).
+# 3 solvers × 3 schedulers × 6 reps = 54 main runs (N=16). The first rep
+# per cell is warm-up (dropped in analyze_results.py), leaving n=5 for the
+# statistics. Plus N=32 scaling demo on Yaris Coarse (1 × 3 × 6 = 18 runs).
 # See EXPERIMENT.md for statistical methodology.
-REPS_PER_CONFIG = 5
-WARMUP_REPS = 2
+REPS_PER_CONFIG = 6
+WARMUP_REPS = 1
 NUM_PROCS = 16  # MPI ranks per job (see EXPERIMENT.md for justification)
 
 
@@ -76,9 +77,10 @@ def poll_until_done(backend: str, sim_id: str, timeout_s: int = 7200) -> dict:
 def fetch_mpip(results_root: Path, sim_id: str) -> Path | None:
     """Locate the mpiP report inside the results PVC mount.
 
-    The launcher pod writes <name>.<ranks>.<pid>.1.mpiP next to the
-    launcher's working dir; the backend volume mount exposes it under
-    `/results/<sim_id>/`.
+    The MPIJob runs each rank with MPIP="-f /results/<sim_id>" (see
+    backend solverCommand), so rank 0 writes <exe>.<ranks>.<pid>.1.mpiP
+    into `/results/<sim_id>/`, which the orchestrator mounts at
+    results_root.
     """
     folder = results_root / sim_id
     if not folder.exists():

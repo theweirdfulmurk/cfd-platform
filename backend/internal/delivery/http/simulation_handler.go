@@ -29,8 +29,14 @@ func NewSimulationHandler(uc *usecase.SimulationUseCase) *SimulationHandler {
 //	name           string  (required)        — display name
 //	type           string  (required)        — openfoam | openradioss | code_aster
 //	np             int     (optional, =1)    — MPI ranks
-//	scheduler      string  (optional, ="")   — "topology-aware" picks our plugin
+//	scheduler      string  (optional, ="")   — default | random | topology-aware | mueller-merbach
 //	file           upload  (required)        — .tar.gz with the case
+//
+// The three non-default choices all run under the topology-aware-scheduler
+// (the profile wired to our extender, see k8s/50-scheduler-config.yaml) and
+// differ only by the placement algorithm the extender applies. The benchmark
+// orchestrator (experiment/run_benchmark.py) submits these three to compare
+// random / greedy / Müller-Merbach placement.
 func (h *SimulationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		respondError(w, http.StatusBadRequest, "failed to parse form")
@@ -61,15 +67,22 @@ func (h *SimulationHandler) Create(w http.ResponseWriter, r *http.Request) {
 		np = parsed
 	}
 
-	schedulerName := ""
+	// Map the public scheduler choice to (k8s schedulerName, extender
+	// algorithm label). All topology-aware variants share the SAME k8s
+	// schedulerName — the extender picks the algorithm from the pod label.
+	var schedulerName, algorithm string
 	switch r.FormValue("scheduler") {
 	case "", "default":
-		// empty schedulerName -> default kube-scheduler
-	case "topology-aware":
-		schedulerName = topologyAwareSchedulerName
+		// empty schedulerName -> default kube-scheduler, extender not consulted
+	case "random", "random-scheduler":
+		schedulerName, algorithm = topologyAwareSchedulerName, "random"
+	case "topology-aware", "greedy":
+		schedulerName, algorithm = topologyAwareSchedulerName, "greedy"
+	case "mueller-merbach", "mm", "mm-scheduler":
+		schedulerName, algorithm = topologyAwareSchedulerName, "mueller-merbach"
 	default:
 		respondError(w, http.StatusBadRequest,
-			"scheduler must be one of: default, topology-aware")
+			"scheduler must be one of: default, random, topology-aware, mueller-merbach")
 		return
 	}
 
@@ -89,7 +102,7 @@ func (h *SimulationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sim, err := h.useCase.CreateWithFile(
-		name, simType, np, schedulerName, file, header.Filename,
+		name, simType, np, schedulerName, algorithm, file, header.Filename,
 	)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
