@@ -72,11 +72,11 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 	var run string
 	switch t {
 	case domain.SimTypeOpenFOAM:
-		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d simpleFoam -parallel", np)
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && simpleFoam -parallel'", np, caseDir)
 	case domain.SimTypeOpenRadioss:
-		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d engine_linux64_gf_ompi -input *.rad", np)
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && engine_linux64_gf_ompi -input *.rad'", np, caseDir)
 	case domain.SimTypeCodeAster:
-		run = fmt.Sprintf("mpirun -x LD_PRELOAD -x MPIP -np %d as_run *.export", np)
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && as_run *.export'", np, caseDir)
 	default:
 		return nil
 	}
@@ -88,7 +88,7 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 			"cp -f *.mpiP %s/ 2>/dev/null || true",
 		resultsDir, caseDir, mpiPLib, resultsDir, run, resultsDir,
 	)
-	return []string{"/bin/bash", "-c", script}
+	return []string{"/bin/bash", "-lc", script}
 }
 
 // extractionCommand returns the bash command for the *pre-MPIJob* extraction
@@ -113,13 +113,13 @@ func extractionCommand(t domain.SimulationType, simID, configPath string, np int
 	switch t {
 	case domain.SimTypeOpenFOAM:
 		return []string{
-			"/bin/bash", "-c",
+			"/bin/bash", "-lc",
 			fmt.Sprintf("set -e && cd %s && decomposePar -force && "+
 				"extract-openfoam-graph . > %s", caseDir, edgelist),
 		}
 	case domain.SimTypeOpenRadioss:
 		return []string{
-			"/bin/bash", "-c",
+			"/bin/bash", "-lc",
 			fmt.Sprintf("set -e && cd %s && "+
 				"starter_linux64_gf -np %d -input *.rad && "+
 				"gpmetis input.graph0 %d && "+
@@ -128,7 +128,7 @@ func extractionCommand(t domain.SimulationType, simID, configPath string, np int
 		}
 	case domain.SimTypeCodeAster:
 		return []string{
-			"/bin/bash", "-c",
+			"/bin/bash", "-lc",
 			fmt.Sprintf("set -e && cd %s && "+
 				"mkdir -p parts && "+
 				"medpartitioner --input-file=*.med --output-file=parts/part "+
@@ -319,9 +319,10 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 							"schedulerName": sim.SchedulerName,
 							"containers": []any{
 								map[string]any{
-									"name":      "solver",
-									"image":     image,
-									"command":   toAnySlice(solverCommand(sim.Type, sim.ID, sim.ConfigPath, np)),
+									"name":            "solver",
+									"image":           image,
+									"imagePullPolicy": "IfNotPresent",
+									"command":         toAnySlice(solverCommand(sim.Type, sim.ID, sim.ConfigPath, np)),
 									"resources": launcherResources(),
 									"volumeMounts": []any{
 										map[string]any{
@@ -354,9 +355,10 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 							"affinity":      workerAntiAffinity(sim.ID),
 							"containers": []any{
 								map[string]any{
-									"name":      "solver",
-									"image":     image,
-									"resources": workerResources(),
+									"name":            "solver",
+									"image":           image,
+									"imagePullPolicy": "IfNotPresent",
+									"resources":       workerResources(),
 									"volumeMounts": []any{
 										map[string]any{
 											"name":      "config",

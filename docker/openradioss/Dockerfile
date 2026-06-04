@@ -104,7 +104,15 @@ RUN dnf install -y epel-release && dnf install -y \
         binutils libunwind \
         perl which procps-ng \
         metis \
+        openssh-server openssh-clients \
     && dnf clean all
+# SSH for kubeflow mpi-operator: worker pods run `/usr/sbin/sshd -De` and the
+# launcher ssh-es in. Generate host keys; disable client host-key prompt and
+# server StrictModes (the operator mounts /root/.ssh world-readable). Without
+# this the worker StartErrors and the launcher fails host-key verification.
+RUN ssh-keygen -A \
+    && printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' >> /etc/ssh/ssh_config \
+    && sed -i '1i StrictModes no' /etc/ssh/sshd_config
 # `metis` package provides gpmetis(1) — the Starter writes input.graph<L>
 # (raw adjacency) and the entry-point script runs `gpmetis input.graph0 N`
 # to get the .part.N file that decomp.METIS() expects.

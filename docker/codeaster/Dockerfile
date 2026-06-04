@@ -365,6 +365,16 @@ RUN ln -s /usr/bin/python3 /usr/local/bin/python && \
     ln -s /aster/asrun/bin/as_run /usr/local/bin/ && \
     chmod +x /usr/local/bin/run_testcases
 
-USER aster
+# SSH for kubeflow mpi-operator (sshd is already installed via the `ssh` package
+# in the runtime apt step). Generate host keys; disable client host-key prompt
+# and server StrictModes (the operator mounts /root/.ssh world-readable).
+RUN ssh-keygen -A \
+    && printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' >> /etc/ssh/ssh_config \
+    && sed -i '1i StrictModes no' /etc/ssh/sshd_config
+
+# Stay root: kubeflow mpi-operator runs `/usr/sbin/sshd -De` (needs root) and
+# mounts SSH keys to /root/.ssh, so the worker must be root. mpirun already runs
+# with --allow-run-as-root (CONFIG_PARAMETERS_mpiexec). The `aster` user remains
+# available but we do not switch to it for the MPIJob worker.
 WORKDIR /work/aster
 ENTRYPOINT ["/bin/bash"]

@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/theweirdfulmurk/cfd-platform/pkg/decomp"
 	"github.com/theweirdfulmurk/cfd-platform/scheduler/algorithms"
@@ -40,6 +41,12 @@ func main() {
 		logger.Warn("latency load failed", "path", latencyPath, "err", err)
 	}
 	loadGraphs(ext, graphsDir, logger)
+	// Re-scan the graphs dir periodically: the backend writes <jobID>.edgelist
+	// AFTER this process starts, and the extender must pick it up before the
+	// corresponding MPIJob pods reach the Prioritize phase. Without this the
+	// extender has no F-graph for new jobs and falls back to uniform scoring —
+	// making all placement algorithms behave identically.
+	go watchGraphs(ext, graphsDir, logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/prioritize", ext.PrioritizeHandler)
@@ -131,6 +138,36 @@ func loadGraphs(ext *plugin.Extender, dir string, logger *slog.Logger) {
 		}
 		ext.SetGraph(jobID, g)
 		logger.Info("graph loaded", "jobID", jobID, "ranks", g.NumRanks, "edges", len(g.Edges))
+	}
+}
+
+// watchGraphs polls the graphs dir and loads any *.edgelist it has not seen
+// yet, so edgelists the backend writes AFTER startup are registered before the
+// matching MPIJob is scheduled. Files are write-once (one per jobID), so
+// tracking by name suffices; plugin.SetGraph is concurrency-safe.
+func watchGraphs(ext *plugin.Extender, dir string, logger *slog.Logger) {
+	seen := map[string]bool{}
+	for {
+		time.Sleep(2 * time.Second)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			name := ent.Name()
+			if ent.IsDir() || !strings.HasSuffix(name, ".edgelist") || seen[name] {
+				continue
+			}
+			jobID := strings.TrimSuffix(name, ".edgelist")
+			g, err := decomp.EdgeList(filepath.Join(dir, name))
+			if err != nil {
+				logger.Warn("graph reload failed", "file", name, "err", err)
+				continue
+			}
+			ext.SetGraph(jobID, g)
+			seen[name] = true
+			logger.Info("graph loaded (rescan)", "jobID", jobID, "ranks", g.NumRanks, "edges", len(g.Edges))
+		}
 	}
 }
 

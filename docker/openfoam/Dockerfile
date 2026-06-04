@@ -51,7 +51,21 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libunwind8 \
-    && rm -rf /var/lib/apt/lists/*
+        openssh-server openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/run/sshd /etc/ssh/ssh_config.d \
+    && ssh-keygen -A \
+    && printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' \
+         > /etc/ssh/ssh_config.d/00-mpi.conf \
+    && sed -i '1i StrictModes no' /etc/ssh/sshd_config
+# openssh-server/client + host keys + ssh config are REQUIRED by kubeflow
+# mpi-operator: worker pods run `/usr/sbin/sshd -De` and the launcher's mpirun
+# ssh-es into them (keys mounted by the operator at /root/.ssh). Without sshd the
+# worker fails StartError. The operator does NOT mount an ssh client config, so
+# we add StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null (else the
+# launcher ssh dies "Host key verification failed"). The operator mounts
+# /root/.ssh world-writable, so sshd needs StrictModes=no (else it refuses the
+# mounted authorized_keys -> "Permission denied (publickey)").
 
 COPY --from=builder   /opt/mpiP /opt/mpiP
 COPY --from=gobuilder /out/extract-openfoam-graph /usr/local/bin/extract-openfoam-graph
