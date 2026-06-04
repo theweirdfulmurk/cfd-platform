@@ -187,25 +187,37 @@ Max duration: 24 days
 Price: $1.103/hr
 ```
 
-### Vast.ai template settings
+### Vast.ai launch — БРАТЬ ОФИЦИАЛЬНЫЙ VM-ШАБЛОН (не кастомный Docker)
 
 ```
-Template Name: cfd-experiment
-VM Image Path: vastai/kvm:ubuntu_cli_22.04-2025-11-21
-VM Version: ubuntu_cli_22.04-2025-11-21
-Launch Mode: Interactive shell server, SSH
-Use direct SSH: ✓
-Disk Space: 130 GB (с запасом для образов и swap)
-Extra Filters: verified=true vms_enabled=true reliability2>=0.95
-Docker Options: пусто
-On-start Script: пусто
-Public/Private: Private
+Template: «Ubuntu 22.04 VM»   ← готовый VM-шаблон Vast.ai, НЕ кастомный
+Launch Mode: SSH              ← у VM единственный режим, это нормально
+Disk Space: 130 GB
+Extra Filters: vms_enabled=true (+ verified, reliability2>=0.95)
+SSH key: добавить в Account ДО создания (на запущенной VM ключ не меняется)
 ```
 
-⚠️ **Критически**: используется **VM mode** (vastai/kvm образ), не
-Docker template. Это даёт полный root + privileged + nested containers
-(kind работает!) + tc qdisc capability. Docker template на Vast.ai
-**не поддерживает privileged mode**.
+🔴 **ГРАБЛИ (2026-06-04, на них наступили)**: НЕ делать кастомный шаблон с
+`VM Image Path: vastai/kvm:...` + `Launch Mode: Interactive shell server`.
+«Interactive shell server» — это **Docker**-режим запуска; запуск kvm-*образа*
+как обычного Docker-*контейнера* НЕ создаёт виртуалку. В итоге получаешь
+непривилегированный Docker (`systemd-detect-virt=docker`, overlay rootfs,
+CapEff без NET_ADMIN, `tc netem → Operation not permitted`, cgroup read-only) —
+multi-AZ через `tc qdisc` НЕ работает, эксперимент невозможен.
+
+✅ **Правильно**: официальный шаблон **«Ubuntu 22.04 VM»** (Templates → VM).
+Он сам фильтрует `vms_enabled` хосты и поднимает **настоящую** KVM-VM:
+своё ядро → root + NET_ADMIN (`tc netem` работает) + nested containers (kind) +
+cgroup cpuset + /dev/kvm. Подтверждено docs.vast.ai (Docker-инстансам доступны
+только env/hostname/ports — cap-add/privileged выдать нельзя; VM даёт «kernel
+tweaks… not constrained by container environments… systemd для Kubernetes»).
+
+**Проверка нового инстанса ДО любого деплоя** (должно вывести `VM OK`):
+```bash
+ssh -p <port> root@<ip> 'ls /dev/kvm && [ "$(systemd-detect-virt)" != docker ] \
+  && tc qdisc add dev lo root netem delay 1ms && tc qdisc del dev lo root \
+  && echo "VM OK: privileged + netem works"'
+```
 
 ### Кластер внутри VM
 

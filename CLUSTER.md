@@ -94,21 +94,33 @@ multi-region (etcd consensus требует low latency между master нод
 
 ## Финальная конфигурация Vast.ai
 
-### Template
+### Template — официальный VM-шаблон Vast.ai
+
+🔴 **Грабли (2026-06-04)**: НЕ кастомный шаблон с `VM Image Path: vastai/kvm:...`
+и `Launch Mode: Interactive shell server` — это запускает kvm-образ как обычный
+**Docker-контейнер** (непривилегированный: нет NET_ADMIN, `tc netem → Operation
+not permitted`, cgroup read-only) → multi-AZ невозможен. По docs.vast.ai
+Docker-инстансам нельзя выдать cap-add/privileged (доступны только env/hostname/
+ports). Нужен **настоящий VM-режим**.
+
+✅ Брать готовый шаблон **«Ubuntu 22.04 VM»** (Templates → VM):
 
 | Параметр | Значение |
 |---|---|
-| Template Name | `cfd-experiment` |
-| VM Image Path | `vastai/kvm:ubuntu_cli_22.04-2025-11-21` |
-| VM Version | `ubuntu_cli_22.04-2025-11-21` |
-| Launch Mode | Interactive shell server, SSH |
-| Use direct SSH | ✅ |
+| Template | **«Ubuntu 22.04 VM»** (официальный, не кастомный) |
+| Launch Mode | **SSH** (у VM единственный режим) |
 | Disk Space | **130 GB** |
-| Extra Filters | `verified=true vms_enabled=true reliability2>=0.95` |
-| Docker Options | пусто |
-| On-start Script | пусто |
-| Docker Repository Authentication | пусто |
-| Public/Private | Private |
+| Extra Filters | `vms_enabled=true` (+ verified, reliability2>=0.95) |
+| SSH key | добавить в Account **до** создания инстанса |
+
+VM = своё ядро → root + NET_ADMIN (`tc netem`), nested containers (kind),
+cgroup cpuset, /dev/kvm. Проверка перед деплоем (должно вывести `VM OK`):
+
+```bash
+ssh -p <port> root@<ip> 'ls /dev/kvm && [ "$(systemd-detect-virt)" != docker ] \
+  && tc qdisc add dev lo root netem delay 1ms && tc qdisc del dev lo root \
+  && echo "VM OK"'
+```
 
 ### Выбранный offer
 

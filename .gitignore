@@ -54,3 +54,4 @@ experiment/*.mpiP
 
 # Docker layers cache (BuildKit creates this if you use --output type=local).
 .buildx-cache/
+kind-config.yaml
