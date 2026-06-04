@@ -76,7 +76,14 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 	case domain.SimTypeOpenRadioss:
 		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && engine_linux64_gf_ompi -input *.rad'", np, caseDir)
 	case domain.SimTypeCodeAster:
-		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && as_run *.export'", np, caseDir)
+		// Code_Aster ships the distro OpenMPI 2.1.1 (ubuntu 18.04), which
+		// defaults orte_keep_fqdn_hostnames=false → it strips the mpi-operator
+		// worker FQDN (foo.<svc>.<ns>.svc) to a short name that does NOT resolve
+		// under the headless service, so orted ssh fails with "Could not resolve
+		// hostname". Forcing keep_fqdn=1 keeps the resolvable name. (OpenMPI 4.x
+		// in the openfoam/openradioss images keeps FQDNs by default, so those
+		// lines don't need it.)
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 --mca orte_keep_fqdn_hostnames 1 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && as_run *.export'", np, caseDir)
 	default:
 		return nil
 	}

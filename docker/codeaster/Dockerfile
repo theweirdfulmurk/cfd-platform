@@ -366,9 +366,13 @@ RUN ln -s /usr/bin/python3 /usr/local/bin/python && \
     chmod +x /usr/local/bin/run_testcases
 
 # SSH for kubeflow mpi-operator (sshd is already installed via the `ssh` package
-# in the runtime apt step). Generate host keys; disable client host-key prompt
-# and server StrictModes (the operator mounts /root/.ssh world-readable).
-RUN ssh-keygen -A \
+# in the runtime apt step). Create the privilege-separation dir (Ubuntu makes
+# /run/sshd at boot, not in the image — without it `sshd -De` aborts with
+# "Missing privilege separation directory"); generate host keys; disable client
+# host-key prompt and server StrictModes (the operator mounts /root/.ssh
+# world-readable).
+RUN mkdir -p /run/sshd \
+    && ssh-keygen -A \
     && printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' >> /etc/ssh/ssh_config \
     && sed -i '1i StrictModes no' /etc/ssh/sshd_config
 

@@ -1,0 +1,52 @@
+# Minimal MPIJob to validate the OpenRadioss sshd overlay end-to-end:
+# launcher ssh-es into 2 worker pods and runs `hostname` via mpirun. This
+# exercises exactly the launcher<->worker ssh handshake + OpenMPI routing
+# that the sshd overlay fixes, WITHOUT needing a real .rad case or extraction.
+#
+# All three pods are pinned to ONE node so the (~2.5 GB) image is pulled once
+# (the VM disk is tight). The mpi-operator still injects `/usr/sbin/sshd -De`
+# as the worker command and generates the hostfile the launcher's mpirun reads.
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: smoke-radioss
+  namespace: cfd-platform
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          nodeName: cfd-worker
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-openradioss:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -lc
+                - >
+                  mpirun --allow-run-as-root
+                  --mca routed direct --mca plm_rsh_no_tree_spawn 1
+                  --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0
+                  -np 2 hostname
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+    Worker:
+      replicas: 2
+      template:
+        spec:
+          nodeName: cfd-worker
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-openradioss:latest
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi

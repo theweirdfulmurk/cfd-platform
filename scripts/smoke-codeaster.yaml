@@ -1,0 +1,47 @@
+# Minimal MPIJob to validate the Code_Aster sshd overlay end-to-end (run-as-root
+# + sshd). Same shape as smoke-radioss.yaml: launcher ssh-es into 2 worker pods
+# and runs `hostname` via mpirun. Pinned to one node to pull the image once.
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: smoke-codeaster
+  namespace: cfd-platform
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          nodeName: cfd-worker
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-codeaster:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -lc
+                - >
+                  mpirun --allow-run-as-root
+                  --mca routed direct --mca plm_rsh_no_tree_spawn 1
+                  --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0
+                  -np 2 hostname
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+    Worker:
+      replicas: 2
+      template:
+        spec:
+          nodeName: cfd-worker
+          containers:
+            - name: solver
+              image: ghcr.io/theweirdfulmurk/cfd-platform-codeaster:latest
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
