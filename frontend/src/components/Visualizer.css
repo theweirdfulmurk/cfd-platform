@@ -1,34 +1,172 @@
-.visualizer {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  margin-top: 1rem;
-}
-
-.viz-header {
+.viz {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
-.viz-header h3 {
-  color: #333;
-}
-
-.viz-container {
-  border: 1px solid #ddd;
-  border-radius: 4px;
+/* The viewport: holds the vtk.js WebGL canvas, with a colour legend and a
+   caption overlaid. */
+.viz-stage {
+  position: relative;
+  height: clamp(320px, 52vh, 480px);
   overflow: hidden;
+  background: var(--slate-canvas);
+  border: 1px solid var(--slate-border);
+  border-radius: var(--radius-md);
 }
 
-.viz-loading {
+.viz-canvas {
+  position: absolute;
+  inset: 0;
+}
+.viz-canvas canvas {
+  display: block;
+  outline: none;
+}
+
+/* Field selector (top-left), glass. */
+.viz-field {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  z-index: 1;
+}
+.viz-field-select {
+  appearance: none;
+  font: var(--text-label);
+  color: var(--ink);
+  background: color-mix(in oklab, var(--slate-canvas) 66%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 28px 6px 11px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a3a7b2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.viz-field-select:focus-visible {
+  outline: none;
+  border-color: var(--lime);
+  box-shadow: 0 0 0 3px var(--lime-ring);
+}
+.viz-field-select option {
+  background: var(--slate-raised);
+  color: var(--ink);
+}
+
+/* Colour legend (cool-to-warm), top = max, bottom = min. */
+.viz-legend {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  z-index: 1;
+}
+.viz-legend-bar {
+  width: 9px;
+  height: 120px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(
+    to top,
+    #3b4cc0 0%,
+    #6f91f2 20%,
+    #b4c8ee 38%,
+    #eceff4 50%,
+    #f4a582 64%,
+    #d6604d 82%,
+    #b40426 100%
+  );
+}
+.viz-legend-num {
+  font: var(--text-micro);
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.viz-legend-unit {
+  font: var(--text-micro);
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.viz-caption {
+  position: absolute;
+  left: var(--space-md);
+  bottom: var(--space-md);
+  z-index: 1;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--slate-canvas) 70%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+}
+
+/* Fallback (no WebGL). */
+.viz-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   text-align: center;
-  padding: 3rem;
-  color: #666;
+  padding: var(--space-xl);
+  background: var(--slate-canvas);
+}
+.viz-glyph {
+  color: var(--faint);
+  opacity: 0.7;
+}
+.viz-ph-title {
+  font: var(--text-title);
+  color: var(--ink);
+}
+.viz-ph-sub {
+  font: var(--text-body);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  max-width: 40ch;
 }
 
-.viz-loading p {
-  margin: 0.5rem 0;
+/* Metadata strip under the viewport. */
+.viz-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.viz-meta-item {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.viz-download {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: var(--text-label);
+  color: var(--ink);
+  background: var(--slate-raised);
+  border: 1px solid var(--slate-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.viz-download:hover {
+  background: var(--slate-border);
+  border-color: var(--faint);
+}
+.viz-download:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--lime-ring);
 }

@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-05T00:00:00Z",
+  "title": "Design System: Платформа инженерных расчётов",
+  "extensions": {
+    "colorMeta": {
+      "lime": {
+        "role": "primary",
+        "displayName": "Signal Lime",
+        "canonical": "oklch(0.860 0.180 130)",
+        "tonalRamp": [
+          "oklch(0.30 0.060 132)",
+          "oklch(0.42 0.100 132)",
+          "oklch(0.54 0.140 131)",
+          "oklch(0.64 0.165 131)",
+          "oklch(0.72 0.180 130)",
+          "oklch(0.80 0.185 132)",
+          "oklch(0.86 0.180 130)",
+          "oklch(0.92 0.130 128)"
+        ]
+      },
+      "signal-cyan": {
+        "role": "secondary",
+        "displayName": "Signal Cyan",
+        "canonical": "oklch(0.740 0.100 224)",
+        "tonalRamp": [
+          "oklch(0.30 0.045 224)",
+          "oklch(0.40 0.060 224)",
+          "oklch(0.50 0.075 224)",
+          "oklch(0.60 0.090 224)",
+          "oklch(0.68 0.098 224)",
+          "oklch(0.74 0.100 224)",
+          "oklch(0.84 0.080 224)",
+          "oklch(0.92 0.045 224)"
+        ]
+      },
+      "signal-green": {
+        "role": "success",
+        "displayName": "Signal Green",
+        "canonical": "oklch(0.740 0.140 158)",
+        "tonalRamp": [
+          "oklch(0.30 0.060 158)",
+          "oklch(0.40 0.090 158)",
+          "oklch(0.50 0.115 158)",
+          "oklch(0.60 0.135 158)",
+          "oklch(0.68 0.140 158)",
+          "oklch(0.74 0.140 158)",
+          "oklch(0.84 0.105 158)",
+          "oklch(0.92 0.055 158)"
+        ]
+      },
+      "signal-red": {
+        "role": "error",
+        "displayName": "Signal Red",
+        "canonical": "oklch(0.640 0.200 25)",
+        "tonalRamp": [
+          "oklch(0.30 0.090 25)",
+          "oklch(0.40 0.130 25)",
+          "oklch(0.50 0.165 25)",
+          "oklch(0.58 0.190 25)",
+          "oklch(0.64 0.200 25)",
+          "oklch(0.72 0.180 27)",
+          "oklch(0.82 0.120 30)",
+          "oklch(0.91 0.060 33)"
+        ]
+      },
+      "slate": {
+        "role": "neutral",
+        "displayName": "Near-Black Neutral",
+        "canonical": "oklch(0.155 0.004 250)",
+        "tonalRamp": [
+          "oklch(0.155 0.004 250)",
+          "oklch(0.195 0.005 250)",
+          "oklch(0.235 0.006 250)",
+          "oklch(0.275 0.006 250)",
+          "oklch(0.340 0.006 250)",
+          "oklch(0.520 0.010 250)",
+          "oklch(0.700 0.010 250)",
+          "oklch(0.970 0.003 250)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "App title 'Платформа инженерных расчётов'. Capped at 1.5rem; a console, not a hero." },
+      "body": { "displayName": "Body", "purpose": "Inter for all language (Russian copy); prose capped 65-75ch." },
+      "mono": { "displayName": "Mono Data", "purpose": "JetBrains Mono, tabular figures, for np / durations / IDs / field ranges only." }
+    },
+    "shadows": [
+      { "name": "float", "value": "0 18px 48px -20px rgba(0,0,0,0.75)", "purpose": "The frosted-glass work panels and the result modal, so they lift off the canvas." },
+      { "name": "overlay", "value": "0 8px 28px -6px rgba(0,0,0,0.6)", "purpose": "Dropdown menus and the toast stack." },
+      { "name": "focus-ring", "value": "0 0 0 3px oklch(0.860 0.180 130 / 0.38)", "purpose": "Lime focus halo on inputs, selects, buttons, the toggle." }
+    ],
+    "glass": [
+      { "name": "glass-panel", "value": "oklch(0.205 0.006 250 / 0.6)", "blur": "blur(22px) saturate(140%)", "border": "oklch(0.985 0.012 250 / 0.1)", "purpose": "The two work panels and the modal shell. Frosted, not transparent. Shell-only; never nested or on small inner elements." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Default ease-out-quint for state transitions (160ms)." },
+      { "name": "dur-fast", "value": "140ms", "purpose": "Input focus, hover lifts, toggle." },
+      { "name": "dur-base", "value": "200ms", "purpose": "Row hover, modal in." },
+      { "name": "pulse-running", "value": "1.6s ease-in-out infinite", "purpose": "Running-status dot. Suppressed under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "560px" },
+      { "name": "stack", "value": "880px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The signature control: a lime key with a near-black legend. 'Запустить расчёт'. Dark text on lime (white fails contrast).",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 12 12\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M2.5 1.6v8.8a.5.5 0 0 0 .77.42l6.6-4.4a.5.5 0 0 0 0-.84L3.27 1.18a.5.5 0 0 0-.77.42z\"/></svg>Запустить расчёт</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:8px;background:oklch(0.800 0.185 132);color:oklch(0.160 0.012 250);font:560 0.875rem/1 Inter,system-ui,sans-serif;padding:10px 16px;border:none;border-radius:6px;cursor:pointer;transition:background .16s cubic-bezier(0.22,1,0.36,1),transform .16s cubic-bezier(0.22,1,0.36,1)}.ds-btn-primary:hover{background:oklch(0.860 0.180 130);transform:translateY(-1px)}.ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 3px oklch(0.860 0.180 130 / .38)}.ds-btn-primary:active{background:oklch(0.800 0.185 132);transform:none}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Скачать результаты / Повторить / Обновить. Raised slate fill, ink label, 1px border.",
+      "html": "<button class=\"ds-btn-secondary\">Скачать результаты</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;gap:7px;background:oklch(0.235 0.006 250);color:oklch(0.970 0.003 250);font:560 0.8125rem/1 Inter,system-ui,sans-serif;padding:8px 12px;border:1px solid oklch(0.340 0.006 250);border-radius:6px;cursor:pointer;transition:background .14s,border-color .14s}.ds-btn-secondary:hover{background:oklch(0.275 0.006 250);border-color:oklch(0.520 0.010 250)}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 3px oklch(0.860 0.180 130 / .38)}"
+    },
+    {
+      "name": "Toggle Switch",
+      "kind": "custom",
+      "refersTo": "toggle",
+      "description": "Параллелизация вычислений. Off: slate track + ink knob. On: lime track + dark knob slid right. Progressively reveals process count + mode.",
+      "html": "<button class=\"ds-switch ds-on\" role=\"switch\" aria-checked=\"true\" aria-label=\"Параллелизация вычислений\"><span class=\"ds-switch-knob\"></span></button>",
+      "css": ".ds-switch{position:relative;width:40px;height:23px;padding:0;border:none;border-radius:999px;background:oklch(0.235 0.006 250);cursor:pointer;transition:background .14s}.ds-switch.ds-on{background:oklch(0.800 0.185 132)}.ds-switch-knob{position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:999px;background:oklch(0.970 0.003 250);transition:transform .14s,background .14s}.ds-switch.ds-on .ds-switch-knob{transform:translateX(17px);background:oklch(0.160 0.012 250)}.ds-switch:focus-visible{outline:none;box-shadow:0 0 0 3px oklch(0.860 0.180 130 / .38)}"
+    },
+    {
+      "name": "Status Pill (running)",
+      "kind": "chip",
+      "refersTo": "badge-running",
+      "description": "Dot + word, never colour alone. Running pulses lime; queued=cyan, completed=green, failed=red.",
+      "html": "<span class=\"ds-pill ds-pill-running\"><span class=\"ds-dot\"></span>Выполняется</span>",
+      "css": ".ds-pill{display:inline-flex;align-items:center;gap:7px;font:560 0.8125rem/1 Inter,system-ui,sans-serif;padding:3px 10px;border-radius:999px}.ds-pill-running{background:oklch(0.300 0.060 132);color:oklch(0.910 0.160 128)}.ds-dot{width:7px;height:7px;border-radius:999px;background:oklch(0.860 0.180 130);animation:ds-pulse 1.6s ease-in-out infinite}@keyframes ds-pulse{0%,100%{opacity:1}50%{opacity:.45}}@media (prefers-reduced-motion:reduce){.ds-dot{animation:none}}"
+    },
+    {
+      "name": "Simulation Row",
+      "kind": "custom",
+      "refersTo": "list-row-selected",
+      "description": "Fixed-width status pill, name + 'solver · mode' subline, mono data, lime 'Результат' on completed rows. Selected = lime-tint fill, no gutter dot, no left stripe.",
+      "html": "<div class=\"ds-row ds-row-selected\"><span class=\"ds-pill ds-pill-running\"><span class=\"ds-dot\"></span>Выполняется</span><div class=\"ds-row-id\"><div class=\"ds-row-name\">bracket-mm-04</div><div class=\"ds-row-sub\">Code_Aster &middot; Точный</div></div><div class=\"ds-row-data\"><span class=\"ds-data\">MPI 16</span><span class=\"ds-data\">13:36</span></div></div>",
+      "css": ".ds-row{display:flex;align-items:center;gap:14px;padding:11px 12px;border-radius:10px;background:transparent;transition:background .2s}.ds-row:hover{background:oklch(0.235 0.006 250)}.ds-row-selected{background:oklch(0.300 0.060 132 / .55)}.ds-pill{flex:0 0 130px;display:inline-flex;align-items:center;gap:7px;font:560 0.8125rem/1 Inter,system-ui,sans-serif}.ds-row-id{flex:1;min-width:0}.ds-row-name{font:600 1rem/1.35 Inter,system-ui,sans-serif;color:oklch(0.970 0.003 250)}.ds-row-sub{font:400 0.8125rem/1.4 Inter,system-ui,sans-serif;color:oklch(0.700 0.010 250)}.ds-row-data{display:flex;align-items:center;gap:14px}.ds-data{font:450 0.8125rem/1.4 'JetBrains Mono',ui-monospace,monospace;font-feature-settings:'tnum' 1;color:oklch(0.700 0.010 250)}"
+    },
+    {
+      "name": "Header Bar",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Slim translucent bar: lime diamond mark + 'Платформа инженерных расчётов' + live cluster indicator. No side nav.",
+      "html": "<header class=\"ds-header\"><span class=\"ds-mark\"></span><span class=\"ds-title\">Платформа инженерных расчётов</span><span class=\"ds-cluster\"><span class=\"ds-cluster-dot\"></span>кластер активен</span></header>",
+      "css": ".ds-header{display:flex;align-items:center;gap:10px;padding:14px 24px;background:oklch(0.155 0.004 250 / .58);-webkit-backdrop-filter:blur(22px) saturate(140%);backdrop-filter:blur(22px) saturate(140%);border-bottom:1px solid oklch(0.985 0.012 250 / .1)}.ds-mark{width:14px;height:14px;background:oklch(0.860 0.180 130);transform:rotate(45deg);border-radius:3px}.ds-title{font:600 1.5rem/1.2 Inter,system-ui,sans-serif;letter-spacing:-0.01em;color:oklch(0.970 0.003 250)}.ds-cluster{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font:560 0.8125rem/1 Inter,system-ui,sans-serif;color:oklch(0.700 0.010 250)}.ds-cluster-dot{width:7px;height:7px;border-radius:999px;background:oklch(0.740 0.140 158)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Control Console",
+    "overview": "A dark instrument panel for launching, watching, and inspecting engineering simulations, not a marketing surface and not a generic SaaS dashboard. The interface sits on a near-black neutral canvas; one warm lime/chartreuse is the only brand color, marking what you can act on and what is alive. The two work panels float as frosted-glass cards over the canvas; depth elsewhere is tonal layering, not shadow. UI copy is in Russian. The feeling to hit is an engineer trusting an instrument: precise, modern, composed.",
+    "keyCharacteristics": [
+      "Near-black neutral canvas; the two work panels and modal are frosted glass, everything else flat tonal layers.",
+      "A single lime signal, reserved for action and live state (<=10% of any screen).",
+      "One sans (Inter) for everything; monospace for numerals and identifiers only.",
+      "Warm/cool counterpoint: lime acts, cyan informs. They never blur.",
+      "Calm density, no visual noise. UI copy in Russian; the placement algorithm is shown by its user-facing mode (Точный / Сбалансированный / Быстрый), not by Müller-Merbach / QAP."
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Lime appears on at most ~10% of any screen, and only on something actionable or alive. The moment lime decorates a static element, it stops meaning 'here', and the console loses its single most valuable cue.", "section": "colors" },
+      { "name": "The Warm/Cool Rule", "body": "Lime acts; cyan informs. A control the user can trigger is lime; a fact the system reports is cyan. They never trade roles.", "section": "colors" },
+      { "name": "The No-Cream Rule", "body": "The surface is a cool near-black, full stop. No warm-neutral background, no paper/sand/parchment tint. Energy lives only in the lime.", "section": "colors" },
+      { "name": "The Mono-for-Data Rule", "body": "Anything compared across rows (counts, durations, IDs, field ranges) is monospace with tabular figures. Anything read as language is Inter.", "section": "typography" },
+      { "name": "The Quiet-Header Rule", "body": "The page title never exceeds 1.5rem. Authority comes from precision, not a shouting hero heading.", "section": "typography" },
+      { "name": "The Glass-Shell, Flat-Inside Rule", "body": "Glass is for the panel/modal shell only. Inside a panel, separate things with a tonal step or a 1px border, never another shadow or another pane of glass. Nested glass is always wrong.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep lime to <=10% of any screen, only on actionable or live elements.",
+      "Do put dark on-lime text on every lime fill; lime is light, dark text is the legible choice.",
+      "Do convey status with a dot plus a word, never colour alone.",
+      "Do set every count, duration, ID, and field range in JetBrains Mono with tabular figures.",
+      "Do use glass only for the panel/modal shell; keep everything inside flat and tonal.",
+      "Do ship every interactive component with default, hover, focus-visible, active, disabled, loading, and error states.",
+      "Do give every animation a prefers-reduced-motion fallback.",
+      "Do write UI copy in Russian; keep solver/tech proper names as-is; present the placement algorithm by its user-facing mode, not by Müller-Merbach / QAP."
+    ],
+    "donts": [
+      "Don't reintroduce the default Material/Bootstrap look: no #1976d2 stock blue, no stock-template buttons or #f5f5f5 body.",
+      "Don't go bright or toy-like: no acid gradients, no emoji, no bouncy rounded fun cards.",
+      "Don't ship AI-SaaS slop: no hero-metric block, no identical icon-card grid, no cream background, no tracked-uppercase eyebrow over every section.",
+      "Don't use gradient text.",
+      "Don't nest glass inside glass, or apply glass to small inner elements; it is a shell material used sparingly, never decoration.",
+      "Don't use a colored border-left/right greater than 1px as a stripe; mark selection with the lime-tint fill.",
+      "Don't let lime and cyan trade roles; lime acts, cyan informs.",
+      "Don't use white text on lime, or faint slate for any real body text (both fail contrast).",
+      "Don't add drop shadows to flat inner surfaces, or a centered spinner where a skeleton belongs."
+    ]
+  }
+}

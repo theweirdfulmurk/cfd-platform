@@ -7,20 +7,26 @@ export function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
-    <div className="home-page">
-      <header>
-        <h1>Topology-Aware MPI Scheduler Platform</h1>
+    <div className="app">
+      <header className="topbar">
+        <span className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-name">Платформа инженерных расчётов</span>
+        </span>
+        <span className="cluster" title="Кластер доступен">
+          <span className="cluster-dot" aria-hidden="true" />
+          кластер активен
+        </span>
       </header>
-      
-      <div className="content">
-        <aside>
+
+      <main className="workspace">
+        <aside className="pane pane-form">
           <CreateSimulation onCreated={() => setRefreshKey(k => k + 1)} />
         </aside>
-        
-        <main>
+        <section className="pane pane-list">
           <SimulationList key={refreshKey} />
-        </main>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }

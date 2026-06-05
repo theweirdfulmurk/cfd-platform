@@ -1,8 +1,12 @@
 import { HomePage } from './pages/HomePage';
-import './App.css';
+import { ToastProvider } from './components/ToastProvider';
 
 function App() {
-  return <HomePage />;
+  return (
+    <ToastProvider>
+      <HomePage />
+    </ToastProvider>
+  );
 }
 
 export default App;

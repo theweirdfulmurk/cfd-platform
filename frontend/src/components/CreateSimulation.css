@@ -1,29 +1,296 @@
-.create-simulation {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.run-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
 }
 
-.create-simulation h2 {
-  margin-bottom: 1.5rem;
-  color: #333;
-  font-size: 1.25rem;
+.form-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: var(--space-xs);
 }
 
-.form-group {
-  margin-bottom: 1.25rem;
+.form-title {
+  font: var(--text-headline);
+  color: var(--ink);
 }
 
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: #555;
-  font-weight: 500;
-  font-size: 14px;
+.form-sub {
+  font: var(--text-body);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  max-width: 34ch;
 }
 
-.create-simulation button {
+/* ---- Fields ---- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label,
+.field-label {
+  font: var(--text-label);
+  letter-spacing: 0.005em;
+  color: var(--muted);
+}
+
+.field-desc {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 38ch;
+  margin-top: 2px;
+}
+
+/* ---- Toggle (parallelization) ---- */
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.toggle-name {
+  font: var(--text-label);
+  color: var(--ink);
+}
+.toggle-hint {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 23px;
+  margin-top: 1px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--slate-raised);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.switch[data-on] {
+  background: var(--lime-deep);
+}
+.switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 17px;
+  height: 17px;
+  border-radius: var(--radius-full);
+  background: var(--ink);
+  transition: transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.switch[data-on] .switch-knob {
+  transform: translateX(17px);
+  background: var(--on-lime);
+}
+.switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--lime-ring);
+}
+
+.control {
   width: 100%;
-  margin-top: 0.5rem;
+  font: var(--text-body);
+  color: var(--ink);
+  background: var(--slate-canvas);
+  border: 1px solid var(--slate-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.control::placeholder {
+  color: var(--muted);
+}
+.control:hover {
+  border-color: var(--faint);
+}
+.control:focus-visible {
+  outline: none;
+  border-color: var(--lime);
+  box-shadow: 0 0 0 3px var(--lime-ring);
+}
+
+input[type='number'].control {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ---- Select with custom caret ---- */
+.select-wrap {
+  position: relative;
+}
+select.control {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 34px;
+}
+.select-wrap::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translateY(-60%);
+  pointer-events: none;
+  background: no-repeat center /
+    contain
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a3a7b2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5l3 3 3-3'/></svg>");
+}
+select.control option {
+  background: var(--slate-raised);
+  color: var(--ink);
+}
+
+/* ---- File dropzone ---- */
+.dropzone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px;
+  border: 1px dashed var(--slate-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--slate-canvas);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.dropzone:hover {
+  border-color: var(--lime);
+}
+.dropzone.is-drag {
+  border-color: var(--lime);
+  border-style: solid;
+  background: var(--lime-tint);
+}
+.dropzone.has-file {
+  border-style: solid;
+  border-color: var(--slate-border-strong);
+}
+.dropzone:focus-within {
+  outline: none;
+  border-color: var(--lime);
+  box-shadow: 0 0 0 3px var(--lime-ring);
+}
+.dropzone-icon {
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.dropzone.is-drag .dropzone-icon,
+.dropzone.has-file .dropzone-icon {
+  color: var(--lime);
+}
+.dropzone-prompt {
+  font-size: 0.875rem;
+}
+.dropzone-prompt code {
+  color: var(--ink);
+  background: var(--slate-raised);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+}
+.link-ish {
+  color: var(--cyan);
+}
+.dropzone-file {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.dropzone-name {
+  font-size: 0.8125rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dropzone-size {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ---- Primary submit ---- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: var(--space-xs);
+  font: var(--text-label);
+  font-size: 0.875rem;
+  color: var(--on-lime);
+  background: var(--lime-deep);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  transition: background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--lime);
+  transform: translateY(-1px);
+}
+.btn-primary:active:not(:disabled) {
+  background: var(--lime-deep);
+  transform: none;
+}
+.btn-primary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--lime-ring);
+}
+.btn-primary:disabled {
+  background: var(--slate-raised);
+  color: var(--faint);
+  cursor: progress;
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  border: 2px solid color-mix(in oklab, var(--faint) 60%, transparent);
+  border-top-color: var(--ink);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.4s;
+  }
 }

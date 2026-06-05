@@ -1,0 +1,58 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font: var(--text-label);
+  letter-spacing: 0.005em;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.pill-lime {
+  background: var(--lime-tint);
+  color: var(--lime-bright);
+}
+.pill-cyan {
+  background: var(--cyan-tint);
+  color: var(--cyan);
+}
+.pill-green {
+  background: var(--green-tint);
+  color: var(--green);
+}
+.pill-red {
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+.pill-dot[data-pulse] {
+  animation: pill-pulse 1.6s var(--ease-out) infinite;
+}
+
+@keyframes pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-dot[data-pulse] {
+    animation: none;
+  }
+}

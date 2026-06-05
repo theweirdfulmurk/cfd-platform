@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@kitware/vtk.js": "^36.1.2",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.42",
     "@types/react-dom": "^18.2.17",
@@ -10,8 +11,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.1",
-    "wslink": "^2.5.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "wslink": "^2.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
