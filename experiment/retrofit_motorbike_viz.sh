@@ -13,8 +13,10 @@
 #     -v /root/retrofit_motorbike_viz.sh:/retrofit_motorbike_viz.sh:ro \
 #     ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest \
 #     -c "bash /retrofit_motorbike_viz.sh"
-set -euo pipefail
+# Source the OpenFOAM env BEFORE set -e: etc/bashrc returns non-zero internally
+# and would abort the script mid-source under an active set -e.
 source /usr/lib/openfoam/openfoam2306/etc/bashrc
+set -euo pipefail
 ITERS="${ITERS:-400}"
 
 cd /tmp && rm -rf mb && cp -r /stage/motorBike_meshed mb && cd mb

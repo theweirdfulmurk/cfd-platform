@@ -9,15 +9,22 @@ exec > /root/stage_openfoam.log 2>&1
 IMG=ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest
 mkdir -p /root/stage
 docker run --rm --entrypoint /bin/bash -v /root/stage:/stage "$IMG" -c '
-set -e
+# Source the OpenFOAM env BEFORE enabling set -e: the etc/bashrc runs commands
+# that return non-zero, which under an active set -e would abort the script mid-
+# source (silent exit 1, no meshing).
 source /usr/lib/openfoam/openfoam2306/etc/bashrc
+set -e
 cd /tmp && rm -rf mb && cp -r "$FOAM_TUTORIALS"/incompressible/simpleFoam/motorBike mb && cd mb
 mkdir -p constant/triSurface
 cp -f "$FOAM_TUTORIALS"/resources/geometry/motorBike.obj.gz constant/triSurface/
 echo "[stage] surfaceFeatureExtract"; surfaceFeatureExtract > log.sfe 2>&1
 echo "[stage] blockMesh";            blockMesh            > log.blockMesh 2>&1
 echo "[stage] snappyHexMesh (serial, may take several min)"; snappyHexMesh -overwrite > log.snappy 2>&1
-cp -r 0.orig 0
+# restore0Dir semantics: snappyHexMesh writes its OWN 0/ (cellLevel, pointLevel,
+# ...). A bare `cp -r 0.orig 0` would nest the real fields into 0/0.orig and
+# decomposePar would transfer nothing → simpleFoam aborts "cannot find
+# processorN/0/p". Wipe the snappy 0/ and restore the clean initial fields.
+rm -rf 0 && cp -r 0.orig 0
 cat > system/decomposeParDict <<EOF
 FoamFile
 {
