@@ -1,3 +1,4 @@
 numpy>=1.24
 scipy>=1.10
 h5py>=3.8
+meshio>=5.3   # result_to_vtp.py: read MED (.rmed) / legacy VTK for the surface export
