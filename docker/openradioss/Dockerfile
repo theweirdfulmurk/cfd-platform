@@ -104,8 +104,12 @@ RUN dnf install -y epel-release && dnf install -y \
         binutils libunwind \
         perl which procps-ng \
         metis \
+        libxcrypt-compat \
         openssh-server openssh-clients \
     && dnf clean all
+# libxcrypt-compat provides libcrypt.so.1 — the OpenRadioss starter/engine link
+# against it, but rockylinux9 ships only libcrypt.so.2; without it the binaries
+# fail at load ("libcrypt.so.1: cannot open shared object file").
 # SSH for kubeflow mpi-operator: worker pods run `/usr/sbin/sshd -De` and the
 # launcher ssh-es in. Generate host keys; disable client host-key prompt and
 # server StrictModes (the operator mounts /root/.ssh world-readable). Without

@@ -17,7 +17,11 @@ USER root
 # here too. Worker pods run `/usr/sbin/sshd -De`; the launcher ssh-es in.
 # Generate host keys; disable client host-key prompt and server StrictModes
 # (the operator mounts /root/.ssh world-readable).
-RUN dnf install -y openssh-server openssh-clients && dnf clean all \
+# libxcrypt-compat provides libcrypt.so.1: the OpenRadioss starter/engine link
+# against it, but rockylinux9 ships only libcrypt.so.2, so without it the binaries
+# fail at load ("libcrypt.so.1: cannot open shared object file") — blocks the
+# radioss benchmark on the cluster.
+RUN dnf install -y openssh-server openssh-clients libxcrypt-compat && dnf clean all \
     && ssh-keygen -A \
     && printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' >> /etc/ssh/ssh_config \
     && sed -i '1i StrictModes no' /etc/ssh/sshd_config
