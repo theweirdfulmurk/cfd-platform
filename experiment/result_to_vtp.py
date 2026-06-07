@@ -73,15 +73,106 @@ FIELD_SPECS = {
 }
 
 
+def read_legacy_vtk(path):
+    """Minimal ASCII legacy VTK reader → meshio-Mesh-like object. meshio's own
+    legacy reader chokes on OpenRadioss anim_to_vtk output (mixed cell types +
+    odd array names), so we parse POINTS/CELLS/CELL_TYPES/POINT_DATA/CELL_DATA
+    directly. Cells are grouped by type into blocks and cell_data is split
+    per-block (matching meshio semantics) so build_surface()/cell_data_flat work."""
+    from types import SimpleNamespace
+    from collections import OrderedDict
+    VTKTYPE = {1: 'vertex', 3: 'line', 5: 'triangle', 7: 'polygon', 9: 'quad',
+               10: 'tetra', 12: 'hexahedron', 13: 'wedge', 14: 'pyramid',
+               22: 'triangle6', 23: 'quad8', 24: 'tetra10'}
+    lines = open(path).read().splitlines()
+    i, n = 0, len(lines)
+    points = None
+    cells_raw, cell_types = [], []
+    point_data, cell_data = {}, {}
+    mode = None  # 'point' | 'cell'
+
+    def take(count):  # consume `count` whitespace-separated tokens across lines
+        nonlocal i
+        vals = []
+        while len(vals) < count and i < n:
+            vals += lines[i].split()
+            i += 1
+        return vals[:count]
+
+    while i < n:
+        toks = lines[i].split()
+        if not toks:
+            i += 1
+            continue
+        kw = toks[0]
+        if kw == 'POINTS':
+            npts = int(toks[1]); i += 1
+            points = np.array(take(npts * 3), dtype=np.float64).reshape(npts, 3)
+        elif kw == 'CELLS':
+            nc, total = int(toks[1]), int(toks[2]); i += 1
+            flat = [int(x) for x in take(total)]
+            p = 0
+            for _ in range(nc):
+                k = flat[p]; cells_raw.append(flat[p + 1:p + 1 + k]); p += 1 + k
+        elif kw == 'CELL_TYPES':
+            nc = int(toks[1]); i += 1
+            cell_types = [int(x) for x in take(nc)]
+        elif kw == 'POINT_DATA':
+            mode = 'point'; i += 1
+        elif kw == 'CELL_DATA':
+            mode = 'cell'; i += 1
+        elif kw == 'SCALARS':
+            name = toks[1]; ncomp = int(toks[3]) if len(toks) > 3 else 1; i += 1
+            if i < n and lines[i].lstrip().startswith('LOOKUP_TABLE'):
+                i += 1
+            cnt = (len(points) if mode == 'point' else len(cell_types)) * ncomp
+            arr = np.array(take(cnt), dtype=np.float64)
+            arr = arr.reshape(-1, ncomp) if ncomp > 1 else arr
+            (point_data if mode == 'point' else cell_data)[name] = arr
+        elif kw == 'VECTORS':
+            name = toks[1]; i += 1
+            cnt = (len(points) if mode == 'point' else len(cell_types)) * 3
+            arr = np.array(take(cnt), dtype=np.float64).reshape(-1, 3)
+            (point_data if mode == 'point' else cell_data)[name] = arr
+        elif kw == 'FIELD':
+            num = int(toks[2]); i += 1
+            for _ in range(num):
+                h = lines[i].split(); i += 1
+                take(int(h[1]) * int(h[2]))
+        else:
+            i += 1
+
+    blocks = OrderedDict()  # meshio_type -> (conns, global_indices)
+    for gi, (conn, vt) in enumerate(zip(cells_raw, cell_types)):
+        mt = VTKTYPE.get(vt)
+        if mt is None:
+            continue
+        blocks.setdefault(mt, ([], []))
+        blocks[mt][0].append(conn)
+        blocks[mt][1].append(gi)
+    cellblocks, cd = [], {k: [] for k in cell_data}
+    for mt, (conns, gidx) in blocks.items():
+        cellblocks.append(SimpleNamespace(type=mt, data=np.array(conns)))
+        for k, arr in cell_data.items():
+            cd[k].append(arr[gidx])
+    return SimpleNamespace(points=points, cells=cellblocks,
+                           point_data=point_data, cell_data=cd)
+
+
 def find_field(name_subs, point_data, cell_data_flat):
-    """Locate a field by fuzzy name match. Returns (values, location) where
-    location is 'point' or 'cell', or None."""
+    """Locate a field by fuzzy name match. Among ALL matching arrays, return the
+    one with the most non-zero values (location 'point'|'cell'), or None. This
+    auto-picks the populated array when a solver emits several namesakes — e.g.
+    OpenRadioss writes 1DELEM_/2DELEM_/3DELEM_Von_Mises and only the one matching
+    the rendered (shell) surface is non-zero."""
+    best, best_nz = None, -1
     for store, loc in ((point_data, "point"), (cell_data_flat, "cell")):
         for key, arr in store.items():
-            low = key.lower()
-            if any(sub in low for sub in name_subs):
-                return arr, loc
-    return None
+            if any(sub in key.lower() for sub in name_subs):
+                nz = int(np.count_nonzero(np.asarray(arr)))
+                if nz > best_nz:
+                    best, best_nz = (arr, loc), nz
+    return best
 
 
 def reduce_field(arr, how):
@@ -210,17 +301,29 @@ def main():
     ap.add_argument("input")
     ap.add_argument("outdir")
     ap.add_argument("--solver", required=True, choices=list(FIELD_SPECS))
-    ap.add_argument("--stress-unit", default="МПа",
-                    help="OpenRadioss stress unit (model-dependent; set from the "
-                         "model's unit system — mm-ms-kg→ГПа, mm-s-tonne→МПа)")
-    ap.add_argument("--stress-scale", type=float, default=1.0,
-                    help="OpenRadioss stress display multiplier")
+    # Units/scales are MODEL-dependent (both solvers): OpenRadioss per its unit
+    # system (mm-ms-kg→ГПа, mm-s-tonne→МПа); Code_Aster per how E/loads were
+    # defined (SI m-Pa → МПа 1e-6 / мм 1e3; but a mm-MPa model is already in
+    # МПа/мм → scale 1). Override per case; None keeps the per-solver default.
+    ap.add_argument("--stress-unit", default=None, help="override von Mises unit label")
+    ap.add_argument("--stress-scale", type=float, default=None, help="override von Mises display scale")
+    ap.add_argument("--disp-unit", default=None, help="override displacement unit label")
+    ap.add_argument("--disp-scale", type=float, default=None, help="override displacement display scale")
     args = ap.parse_args()
 
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    mesh = meshio.read(args.input)
+    try:
+        mesh = meshio.read(args.input)
+    except (Exception, SystemExit) as e:
+        # meshio raises SystemExit (not Exception) on a failed VTK read, and it
+        # can't read OpenRadioss anim_to_vtk legacy VTK at all — use our parser.
+        if str(args.input).lower().endswith(('.vtk', '.txt')):
+            print(f"[vtp] meshio failed ({e}); using legacy-VTK fallback parser")
+            mesh = read_legacy_vtk(args.input)
+        else:
+            raise
     points = np.asarray(mesh.points, dtype=np.float64)
     if points.shape[1] == 2:
         points = np.column_stack([points, np.zeros(len(points))])
@@ -251,8 +354,13 @@ def main():
         if loc == "cell":
             vals = cell_to_point(np.asarray(vals, dtype=np.float64), faces, owners, len(points))
         point_fields[canon] = vals.astype(np.float32)
-        u = args.stress_unit if (args.solver == "openradioss" and canon == "vonMises") else unit
-        s = args.stress_scale if (args.solver == "openradioss" and canon == "vonMises") else scale
+        u, s = unit, scale
+        if canon == "vonMises":
+            if args.stress_unit is not None: u = args.stress_unit
+            if args.stress_scale is not None: s = args.stress_scale
+        elif canon == "displacement":
+            if args.disp_unit is not None: u = args.disp_unit
+            if args.disp_scale is not None: s = args.disp_scale
         stats_fields.append({"name": canon, "label": label,
                              "unit": u or "—", "scale": s if s is not None else 1.0})
 
