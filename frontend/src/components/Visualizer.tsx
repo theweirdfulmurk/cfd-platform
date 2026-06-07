@@ -67,14 +67,32 @@ function findArray(pd: any, name: string): { array: any; location: 'point' | 'ce
   return null;
 }
 
-// Range [min,max] of the field as rendered: magnitude for vectors, value for
-// scalars. The single source of truth for the legend (matches the colour bar).
-function fieldRange(pd: any, name: string): [number, number] {
+// Robust colour range [p2, p98] of the field (magnitude for vectors). Min/max is
+// useless when a field has extreme localised outliers — e.g. crash von Mises is
+// <56 МПа over 99% of the body but spikes to 1514 in the crush zone, so a linear
+// min/max map paints the whole body one colour. Percentile clipping ("Rescale to
+// Visible" in ParaView) makes the field readable; the crush peak saturates red.
+function colorRange(pd: any, name: string): [number, number] {
   const found = findArray(pd, name);
   if (!found) return [0, 1];
   const comps = found.array.getNumberOfComponents();
-  const r = found.array.getRange(comps > 1 ? -1 : 0);
-  return [r[0], r[1]];
+  const data = found.array.getData() as ArrayLike<number>;
+  const n = found.array.getNumberOfTuples();
+  const vals = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    if (comps > 1) {
+      let s = 0;
+      for (let c = 0; c < comps; c++) { const x = data[i * comps + c]; s += x * x; }
+      vals[i] = Math.sqrt(s);
+    } else {
+      vals[i] = data[i];
+    }
+  }
+  vals.sort();
+  const lo = vals[Math.floor(0.02 * (n - 1))];
+  const hi = vals[Math.floor(0.98 * (n - 1))];
+  if (hi > lo) return [lo, hi];
+  return [vals[0], vals[n - 1] > vals[0] ? vals[n - 1] : vals[0] + 1];
 }
 
 // Min/max/mean of the field (mean of magnitude for vectors) for the CSV export.
@@ -124,6 +142,12 @@ function buildRealScene(
   const found = findArray(polydata, fieldName);
   if (found) {
     const comps = found.array.getNumberOfComponents();
+    // Set the chosen array as the ACTIVE scalars and use the default-data scalar
+    // mode — the reliable vtk.js colouring path (the same one the synthetic scene
+    // uses). setColorByArrayName + Use*FieldData alone left the surface uniform.
+    if (found.location === 'point') polydata.getPointData().setScalars(found.array);
+    else polydata.getCellData().setScalars(found.array);
+
     const ctf = vtkColorTransferFunction.newInstance();
     ctf.applyColorMap(vtkColorMaps.getPresetByName('Cool to Warm'));
     if (comps > 1) ctf.setVectorModeToMagnitude();
@@ -132,10 +156,9 @@ function buildRealScene(
 
     mapper.setLookupTable(ctf as never);
     mapper.setScalarRange(range[0], range[1]);
-    mapper.setColorByArrayName(fieldName);
     mapper.setColorModeToMapScalars();
-    if (found.location === 'point') mapper.setScalarModeToUsePointFieldData();
-    else mapper.setScalarModeToUseCellFieldData();
+    if (found.location === 'cell') mapper.setScalarModeToUseCellData();
+    else mapper.setScalarModeToUsePointData();
   }
 
   const actor = vtkActor.newInstance();
@@ -316,7 +339,7 @@ export function Visualizer({ sim }: { sim: Simulation }) {
   const realRange: [number, number] = useMemo(() => {
     if (mode === 'real' && polyRef.current && realFields) {
       const f = realFields[fieldIdx] ?? realFields[0];
-      return fieldRange(polyRef.current, f.name);
+      return colorRange(polyRef.current, f.name);
     }
     return [0, 1];
   }, [mode, fieldIdx, realFields]);
