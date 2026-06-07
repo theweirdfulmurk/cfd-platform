@@ -7,6 +7,7 @@ import (
 	"github.com/theweirdfulmurk/cfd-platform/internal/domain"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -518,9 +519,17 @@ func (m *SimulationManager) GetJobStatus(simID string) (domain.SimulationStatus,
 
 func (m *SimulationManager) DeleteJob(simID string) error {
 	propagationPolicy := metav1.DeletePropagationBackground
-	return m.dynClient.Resource(MPIJobGVR).Namespace(m.namespace).Delete(
+	err := m.dynClient.Resource(MPIJobGVR).Namespace(m.namespace).Delete(
 		context.Background(),
 		fmt.Sprintf("sim-%s", simID),
 		metav1.DeleteOptions{PropagationPolicy: &propagationPolicy},
 	)
+	// An already-absent MPIJob is not an error: the mpi-operator may have
+	// reaped it on BackoffLimitExceeded, or it was deleted out-of-band. The
+	// caller still wants the simulation gone from the repository, so make the
+	// delete idempotent instead of failing the whole request with a 500.
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
 }

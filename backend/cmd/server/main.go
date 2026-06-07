@@ -47,6 +47,8 @@ func main() {
 			r.Get("/{simId}", simHandler.Get)
 			r.Delete("/{simId}", simHandler.Delete)
 			r.Get("/{simId}/results", simHandler.DownloadResults)
+			r.Get("/{simId}/surface", simHandler.Surface)
+			r.Get("/{simId}/field-stats", simHandler.FieldStats)
 			r.Get("/{simId}/visualizations", vizHandler.ListBySimulation)
 		})
 		r.Route("/visualizations", func(r chi.Router) {

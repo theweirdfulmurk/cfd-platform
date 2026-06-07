@@ -198,6 +198,15 @@ func (uc *SimulationUseCase) Delete(simID string) error {
 	if err := uc.k8sManager.DeleteJob(simID); err != nil {
 		return fmt.Errorf("delete MPIJob: %w", err)
 	}
+	// Best-effort cleanup so deleting a sim doesn't leave the extraction Job
+	// running nor orphan its on-disk artifacts (case dir holds surface.vtp +
+	// stats.json; /results holds the mpiP archive). Without this, Surface/
+	// FieldStats/DownloadResults keep serving a deleted sim's data and the PVCs
+	// leak across create/delete cycles. Errors are non-fatal (idempotent).
+	_ = uc.k8sManager.DeleteExtractionJob(simID)
+	_ = os.RemoveAll(filepath.Join(uc.storagePath, simID))
+	_ = os.RemoveAll(filepath.Join("/results", simID))
+
 	if err := uc.repo.Delete(simID); err != nil {
 		return fmt.Errorf("delete simulation: %w", err)
 	}

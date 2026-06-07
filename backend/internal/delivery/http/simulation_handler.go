@@ -2,8 +2,11 @@ package http
 
 import (
 	"archive/zip"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +18,11 @@ import (
 )
 
 const topologyAwareSchedulerName = "topology-aware-scheduler"
+
+// simulationsRoot is the shared PVC mount where CreateWithFile extracts each
+// case (mirrors usecase.SimulationUseCase.storagePath). The post-solve export
+// step writes surface.vtp + stats.json next to the case here.
+const simulationsRoot = "/pvc/simulations"
 
 type SimulationHandler struct {
 	useCase *usecase.SimulationUseCase
@@ -140,22 +148,89 @@ func (h *SimulationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Surface streams the exported result surface (surface.vtp) for a finished
+// simulation. It is produced by the post-solve export step (reconstructPar +
+// foamToVTK -surfaceFields, see experiment/export_surface.sh) and lives next to
+// the case in the shared PVC. The frontend Visualizer fetches it and renders the
+// real geometry coloured by the real field; a 404 makes the viewer fall back to
+// the representative preview (solvers/runs without an export yet).
+func (h *SimulationHandler) Surface(w http.ResponseWriter, r *http.Request) {
+	simID := chi.URLParam(r, "simId")
+	path := filepath.Join(simulationsRoot, simID, "surface.vtp")
+	f, err := os.Open(path)
+	if err != nil {
+		// A missing export is a 404 (viewer falls back); any OTHER open error
+		// (permissions, PVC mount fault, fd exhaustion) is a real 5xx so it
+		// isn't silently masked as "no export yet".
+		if errors.Is(err, fs.ErrNotExist) {
+			respondError(w, http.StatusNotFound, "surface not found")
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to open surface")
+		}
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to stat surface")
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("inline; filename=%s-surface.vtp", simID))
+	// ServeContent gives us range requests + caching for free; *os.File is a
+	// ReadSeeker.
+	http.ServeContent(w, r, "surface.vtp", info.ModTime(), f)
+}
+
+// FieldStats returns the real per-field numeric summary (array name, label,
+// unit, min/max/mean) the export step writes alongside the surface. It powers
+// the viewer legend and the "Скачать результаты" CSV with actual numbers
+// instead of the synthetic placeholders. 404 → frontend uses its fallback.
+func (h *SimulationHandler) FieldStats(w http.ResponseWriter, r *http.Request) {
+	simID := chi.URLParam(r, "simId")
+	path := filepath.Join(simulationsRoot, simID, "stats.json")
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			respondError(w, http.StatusNotFound, "field stats not found")
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to open field stats")
+		}
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to stat field stats")
+		return
+	}
+	// ServeContent (over io.Copy) sets Content-Length and keeps the status at
+	// 200 only when the read succeeds — a mid-stream read error won't leave the
+	// client with a silently truncated 200 body the way a discarded io.Copy err did.
+	w.Header().Set("Content-Type", "application/json")
+	http.ServeContent(w, r, "stats.json", info.ModTime(), f)
+}
+
 func (h *SimulationHandler) DownloadResults(w http.ResponseWriter, r *http.Request) {
 	simID := chi.URLParam(r, "simId")
 	resultsPath := fmt.Sprintf("/results/%s", simID)
 
-	if _, err := os.Stat(resultsPath); os.IsNotExist(err) {
-		respondError(w, http.StatusNotFound, "results not found")
+	if _, err := os.Stat(resultsPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			respondError(w, http.StatusNotFound, "results not found")
+		} else {
+			respondError(w, http.StatusInternalServerError, "failed to stat results")
+		}
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf("attachment; filename=results-%s.zip", simID))
-
-	zipWriter := zip.NewWriter(w)
-	defer zipWriter.Close()
-
+	// Build the archive into a buffer FIRST. If anything fails mid-walk (a file
+	// vanishes on the shared PVC, an I/O error) we can still return a clean 500
+	// — once we start writing to w the 200 status is committed and a later
+	// respondError would corrupt the zip byte stream instead of signalling.
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
 	err := filepath.Walk(resultsPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
@@ -176,7 +251,19 @@ func (h *SimulationHandler) DownloadResults(w http.ResponseWriter, r *http.Reque
 		_, err = io.Copy(zf, f)
 		return err
 	})
+	if err == nil {
+		err = zipWriter.Close() // flush central directory; check the error
+	} else {
+		_ = zipWriter.Close()
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to create archive")
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=results-%s.zip", simID))
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	_, _ = io.Copy(w, &buf)
 }
