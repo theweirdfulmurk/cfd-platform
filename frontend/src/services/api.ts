@@ -1,4 +1,4 @@
-import { Simulation, SimulationType, SchedulerChoice, Visualization } from '../types';
+import { Simulation, SimulationType, SchedulerChoice, Visualization, FieldStats } from '../types';
 
 const API_BASE = '/api';
 
@@ -45,6 +45,24 @@ export const simulationAPI = {
   async delete(id: string): Promise<void> {
     const res = await fetch(`${API_BASE}/simulations/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete simulation');
+  },
+
+  // URL of the exported result surface (.vtp). The Visualizer fetches it as an
+  // ArrayBuffer and parses it with vtk.js; a 404 means no export yet → fallback.
+  surfaceURL(id: string): string {
+    return `${API_BASE}/simulations/${id}/surface`;
+  },
+
+  // Real per-field numeric summary; null when the run has no export.
+  async fieldStats(id: string): Promise<FieldStats | null> {
+    const res = await fetch(`${API_BASE}/simulations/${id}/field-stats`);
+    if (!res.ok) return null;
+    return res.json();
+  },
+
+  // URL of the raw results archive (mpiP report etc.), zipped by the backend.
+  resultsURL(id: string): string {
+    return `${API_BASE}/simulations/${id}/results`;
   },
 };
 
