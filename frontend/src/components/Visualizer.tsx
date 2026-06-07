@@ -15,7 +15,7 @@ import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
-import vtkXMLPolyDataReader from '@kitware/vtk.js/IO/XML/XMLPolyDataReader';
+import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
 
 const BG: [number, number, number] = [0.055, 0.06, 0.07];
 
@@ -232,6 +232,68 @@ function buildSyntheticScene(container: HTMLDivElement, freq: number) {
   };
 }
 
+// Parse an ASCII VTK XML PolyData (.vtp) into a vtkPolyData WITHOUT vtk.js's
+// XMLPolyDataReader: importing that reader pulls in IO/XML modules whose circular
+// deps make Rollup mis-order the lazy chunk ("Class extends value undefined").
+// DOMParser is a browser built-in and handles foamVtk's single-quoted attributes;
+// we build the polydata from the same low-level primitives the rest of the viewer
+// already uses (vtkPolyData / vtkDataArray), which bundle cleanly.
+function parseVtpToPolyData(text: string): any {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const piece = doc.querySelector('Piece');
+  if (!piece) throw new Error('vtp: no Piece');
+
+  const arrayByName = (parent: Element | null, name: string): Element | null => {
+    if (!parent) return null;
+    const arrs = parent.getElementsByTagName('DataArray');
+    for (let i = 0; i < arrs.length; i++) {
+      if (arrs[i].getAttribute('Name') === name) return arrs[i];
+    }
+    return null;
+  };
+  const nums = (el: Element | null): number[] =>
+    el && el.textContent ? el.textContent.trim().split(/\s+/).map(Number) : [];
+
+  const pointsEl = piece.querySelector('Points');
+  const coords = Float32Array.from(
+    nums(pointsEl ? pointsEl.getElementsByTagName('DataArray')[0] : null));
+
+  const polysEl = piece.querySelector('Polys');
+  const conn = nums(arrayByName(polysEl, 'connectivity'));
+  const offs = nums(arrayByName(polysEl, 'offsets'));
+  // VTK legacy cell array: [n, i0, i1, ..., n, i0, ...] derived from offsets.
+  const cells: number[] = [];
+  let prev = 0;
+  for (const off of offs) {
+    cells.push(off - prev);
+    for (let i = prev; i < off; i++) cells.push(conn[i]);
+    prev = off;
+  }
+
+  const pd = vtkPolyData.newInstance();
+  pd.getPoints().setData(coords, 3);
+  pd.getPolys().setData(Uint32Array.from(cells));
+
+  const addFields = (container: Element | null, target: 'point' | 'cell') => {
+    if (!container) return;
+    const arrs = container.getElementsByTagName('DataArray');
+    for (let i = 0; i < arrs.length; i++) {
+      const el = arrs[i];
+      const name = el.getAttribute('Name');
+      if (!name) continue;
+      const nc = Number(el.getAttribute('NumberOfComponents') || '1');
+      const da = vtkDataArray.newInstance({
+        name, numberOfComponents: nc, values: Float32Array.from(nums(el)),
+      });
+      if (target === 'point') pd.getPointData().addArray(da);
+      else pd.getCellData().addArray(da);
+    }
+  };
+  addFields(piece.querySelector('PointData'), 'point');
+  addFields(piece.querySelector('CellData'), 'cell');
+  return pd;
+}
+
 type Mode = 'loading' | 'real' | 'fallback';
 
 export function Visualizer({ sim }: { sim: Simulation }) {
@@ -284,10 +346,8 @@ export function Visualizer({ sim }: { sim: Simulation }) {
       try {
         const res = await fetch(simulationAPI.surfaceURL(sim.ID));
         if (!res.ok) throw new Error('no surface');
-        const buf = await res.arrayBuffer();
-        const reader = vtkXMLPolyDataReader.newInstance();
-        reader.parseAsArrayBuffer(buf);
-        const pd = reader.getOutputData(0);
+        const text = await res.text();
+        const pd = parseVtpToPolyData(text);
         if (!pd || pd.getNumberOfPoints() === 0) throw new Error('empty surface');
         const st = await simulationAPI.fieldStats(sim.ID);
         // 'real' mode REQUIRES non-empty stats: without it realFields is null and
@@ -337,7 +397,7 @@ export function Visualizer({ sim }: { sim: Simulation }) {
       `Статус,${STATUS_META[sim.Status].label}`,
     ];
     if (sim.Status === 'completed') {
-      rows.push(`Длительность,${duration(sim.StartedAt, sim.CompletedAt)}`);
+      rows.push(`Длительность,${duration(sim.StartedAt ?? sim.CreatedAt, sim.CompletedAt)}`);
     }
     if (mode === 'real' && realFields && polyRef.current) {
       if (stats?.cells) rows.push(`Ячеек на поверхности,${stats.cells}`);
@@ -425,7 +485,7 @@ export function Visualizer({ sim }: { sim: Simulation }) {
         <span className="viz-meta-item mono">MPI {sim.NumProcs}</span>
         {sim.Status === 'completed' && (
           <span className="viz-meta-item mono">
-            {duration(sim.StartedAt, sim.CompletedAt)}
+            {duration(sim.StartedAt ?? sim.CreatedAt, sim.CompletedAt)}
           </span>
         )}
         <button className="viz-download" onClick={downloadResults}>

@@ -36,11 +36,11 @@ const STATUS_FILTERS: ('all' | SimulationStatus)[] = [
 function rowTime(sim: Simulation): { value: string; label: string } {
   switch (sim.Status) {
     case 'running':
-      return { value: duration(sim.StartedAt), label: 'идёт' };
+      return { value: duration(sim.StartedAt ?? sim.CreatedAt), label: 'идёт' };
     case 'completed':
-      return { value: duration(sim.StartedAt, sim.CompletedAt), label: 'всего' };
+      return { value: duration(sim.StartedAt ?? sim.CreatedAt, sim.CompletedAt), label: 'всего' };
     case 'failed':
-      return { value: duration(sim.StartedAt, sim.CompletedAt), label: 'длительность' };
+      return { value: duration(sim.StartedAt ?? sim.CreatedAt, sim.CompletedAt), label: 'длительность' };
     default:
       return { value: relativeTime(sim.CreatedAt), label: 'в очереди' };
   }
