@@ -75,16 +75,36 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 	case domain.SimTypeOpenFOAM:
 		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && simpleFoam -parallel'", np, caseDir)
 	case domain.SimTypeOpenRadioss:
-		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && engine_linux64_gf_ompi -input *.rad'", np, caseDir)
+		// Each rank runs in a POD-LOCAL scratch dir (/tmp/rad) with the case
+		// files symlinked in, NOT directly in the shared PVC case dir. The
+		// OpenRadioss engine writes per-rank scratch temp files (NN_root_*.tmp)
+		// into its CWD and reads them straight back; on the shared kind hostPath
+		// PVC those reads come back empty across pods ("freeform.F: End of file"),
+		// even though the very same 16-rank job runs fine with a local CWD. mpiP
+		// still lands in /results via the absolute MPIP path, and the engine
+		// reads restart/deck through the symlinks. (simpleFoam/Code_Aster don't
+		// hit this — they don't do the create-then-read scratch dance.)
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'rm -rf /tmp/rad && mkdir -p /tmp/rad && cd /tmp/rad && ln -sf %s/* . && engine_linux64_gf_ompi -input *.rad'", np, caseDir)
 	case domain.SimTypeCodeAster:
-		// Code_Aster ships the distro OpenMPI 2.1.1 (ubuntu 18.04), which
-		// defaults orte_keep_fqdn_hostnames=false → it strips the mpi-operator
-		// worker FQDN (foo.<svc>.<ns>.svc) to a short name that does NOT resolve
-		// under the headless service, so orted ssh fails with "Could not resolve
-		// hostname". Forcing keep_fqdn=1 keeps the resolvable name. (OpenMPI 4.x
-		// in the openfoam/openradioss images keeps FQDNs by default, so those
-		// lines don't need it.)
-		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 --mca orte_keep_fqdn_hostnames 1 -x LD_PRELOAD -x MPIP -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'cd %s && as_run *.export'", np, caseDir)
+		// code_aster is launched by running the command file directly
+		// (`python3 fort.1`), the same invocation the working manual run used —
+		// NOT via as_run, which does its OWN local mpiexec and would not
+		// distribute ranks across the kubeflow worker pods (the whole point of
+		// the experiment). The MPIJob mpirun places one rank per worker pod;
+		// each runs in a POD-LOCAL dir so the per-rank JEVEUX base cannot collide
+		// on the shared PVC (the JEVEUX_41 "VOLATILE" error — same class of fix
+		// as OpenRadioss's scratch isolation). mpiP is NOT preloaded: like the
+		// OpenRadioss Fortran engine it corrupts MPI_Comm_size (Fortran/C PMPI
+		// name-mangling), making code_aster see the wrong process count.
+		// orte_keep_fqdn_hostnames keeps the resolvable worker FQDN. Fixture:
+		// study.comm + mesh.med; the bootstrap imports are prepended (legacy
+		// test comms omit them) and the mesh is exposed on unit 20 (fort.20).
+		// NOTE: single-container MPI (as_run, np=16) is verified OK; the
+		// cross-pod python3 path here mirrors OpenRadioss and must be smoke-
+		// tested on first deploy.
+		caseComm := caseDir + "/study.comm"
+		caseMesh := caseDir + "/mesh.med"
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 --mca orte_keep_fqdn_hostnames 1 -x PATH -x LD_LIBRARY_PATH -np %d bash -lc '. /aster/aster/share/aster/profile.sh; rm -rf /tmp/ca && mkdir -p /tmp/ca && cd /tmp/ca; { echo \"from code_aster.Commands import *\"; echo \"from code_aster.Cata.Syntax import _F\"; cat %s; } > fort.1; ln -sf %s fort.20; python3 fort.1 --memjeveux=2048 --tpmax=3600 --rep_outils=/aster/asrun/outils --rep_mat=/aster/aster/share/aster/materiau --rep_dex=/aster/aster/share/aster/datg --numthreads=1'", np, caseComm, caseMesh)
 	default:
 		return nil
 	}
@@ -126,10 +146,22 @@ func extractionCommand(t domain.SimulationType, simID, configPath string, np int
 				"extract-openfoam-graph . > %s", caseDir, edgelist),
 		}
 	case domain.SimTypeOpenRadioss:
+		// The starter input deck differs by case origin: native OpenRadioss
+		// cases ship a *_0000.rad Starter deck, while LS-Dyna imports (e.g. the
+		// Yaris crash model) ship a .key master deck with units + includes baked
+		// in. Resolve in priority order — native _0000.rad, then the
+		// `main.{key,rad}` master convention, then any lone .rad — so both kinds
+		// extract under one command. The starter emits input.graph0 regardless
+		// of the deck name.
 		return []string{
 			"/bin/bash", "-lc",
 			fmt.Sprintf("set -e && cd %s && "+
-				"starter_linux64_gf -np %d -input *.rad && "+
+				"INPUT=\"$(ls *_0000.rad 2>/dev/null | head -1)\"; "+
+				"[ -z \"$INPUT\" ] && INPUT=\"$(ls main.key main.rad 2>/dev/null | head -1)\"; "+
+				"[ -z \"$INPUT\" ] && INPUT=\"$(ls *.rad 2>/dev/null | head -1)\"; "+
+				"test -n \"$INPUT\" || { echo 'no OpenRadioss starter deck found' >&2; exit 1; }; "+
+				"echo \"starter input: $INPUT\" && "+
+				"starter_linux64_gf -np %d -input \"$INPUT\" && "+
 				"gpmetis input.graph0 %d && "+
 				"extract-radioss-graph input.graph0 input.graph0.part.%d > %s",
 				caseDir, np, np, np, edgelist),
@@ -206,9 +238,12 @@ func (m *SimulationManager) CreateExtractionJob(sim *domain.Simulation) error {
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{{
-						Name:    "extract",
-						Image:   image,
-						Command: cmd,
+						Name:  "extract",
+						Image: image,
+						// Use the kind-loaded image, never surprise-pull: a :latest tag
+						// otherwise defaults to PullAlways and fetches the published image.
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Command:         cmd,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("500m"),
@@ -301,8 +336,8 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 			"name":      fmt.Sprintf("sim-%s", sim.ID),
 			"namespace": m.namespace,
 			"labels": map[string]any{
-				"app":    "simulation",
-				"type":   string(sim.Type),
+				"app":        "simulation",
+				"type":       string(sim.Type),
 				"mpi-job-id": sim.ID,
 			},
 		},
@@ -331,7 +366,7 @@ func (m *SimulationManager) CreateJob(sim *domain.Simulation) error {
 									"image":           image,
 									"imagePullPolicy": "IfNotPresent",
 									"command":         toAnySlice(solverCommand(sim.Type, sim.ID, sim.ConfigPath, np)),
-									"resources": launcherResources(),
+									"resources":       launcherResources(),
 									"volumeMounts": []any{
 										map[string]any{
 											"name":      "config",

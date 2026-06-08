@@ -83,20 +83,22 @@ func validateOpenFOAMCase(entries []string) error {
 	return nil
 }
 
-// validateOpenRadiossCase requires a Radioss Starter input deck (.rad).
+// validateOpenRadiossCase accepts either a native Radioss Starter deck (.rad)
+// or an LS-Dyna master deck (.key) for import (e.g. the Yaris crash model).
 // The Starter itself decides whether the model is consistent.
 func validateOpenRadiossCase(entries []string) error {
-	if !anyMatch(entries, ".rad") {
-		return fmt.Errorf("OpenRadioss case requires a .rad Starter input deck")
+	if !anyMatch(entries, ".rad") && !anyMatch(entries, ".key") {
+		return fmt.Errorf("OpenRadioss case requires a .rad Starter deck or a .key master deck")
 	}
 	return nil
 }
 
-// validateCodeAsterCase requires a Code_Aster .export driver and at least
-// one .med mesh.
+// validateCodeAsterCase requires a Code_Aster command file (.comm — run
+// directly via python3) or a legacy .export driver, plus at least one .med
+// mesh. The fixture convention used by the benchmark is study.comm + mesh.med.
 func validateCodeAsterCase(entries []string) error {
-	if !anyMatch(entries, ".export") {
-		return fmt.Errorf("Code_Aster case requires a .export driver file")
+	if !anyMatch(entries, ".comm") && !anyMatch(entries, ".export") {
+		return fmt.Errorf("Code_Aster case requires a .comm command file (or .export driver)")
 	}
 	if !anyMatch(entries, ".med") {
 		return fmt.Errorf("Code_Aster case requires a .med mesh file")
