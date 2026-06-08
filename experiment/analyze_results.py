@@ -68,9 +68,14 @@ def load_runs(path: Path) -> list[dict]:
                 r["wall_time_s"] = float(r["wall_time_s"])
             except ValueError:
                 continue
+            r["app_time_s"] = _maybe_float(r.get("app_time_s"))
             r["mpi_time_s"] = _maybe_float(r.get("mpi_time_s"))
             r["mpi_pct"] = _maybe_float(r.get("mpi_pct"))
             r["rep"] = int(r["rep"])
+            # np separates the N=16 main cohort from the N=32 scaling cohort
+            # in a shared runs.csv. Older CSVs without the column predate the
+            # scaling demo and were all N=16.
+            r["np"] = (r.get("np") or "16").strip() or "16"
             if r["rep"] <= WARMUP_REPS:
                 continue
             rows.append(r)
@@ -84,10 +89,12 @@ def _maybe_float(x):
         return None
 
 
-def group_by_config(rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
-    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+def group_by_config(rows: list[dict]) -> dict[tuple[str, str, str], list[dict]]:
+    """Group by (solver, scheduler, np). np is in the key so the N=16 main
+    cohort and the N=32 scaling cohort never pool into one cell."""
+    groups: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for r in rows:
-        groups[(r["solver"], r["scheduler"])].append(r)
+        groups[(r["solver"], r["scheduler"], r["np"])].append(r)
     return groups
 
 
@@ -171,30 +178,32 @@ def main() -> int:
     args.out_summary.parent.mkdir(parents=True, exist_ok=True)
     with args.out_summary.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["solver", "scheduler", "n", "mean", "ci_low", "ci_high", "method"])
-        for (solver, sched), runs in sorted(groups.items()):
+        w.writerow(["solver", "scheduler", "np", "n", "mean", "ci_low", "ci_high", "method"])
+        for (solver, sched, nproc), runs in sorted(groups.items()):
             samples = [r[args.metric] for r in runs if r.get(args.metric) is not None]
             if len(samples) < 3:
-                w.writerow([solver, sched, len(samples), "", "", "", "skip"])
+                w.writerow([solver, sched, nproc, len(samples), "", "", "", "skip"])
                 continue
             mean, lo, hi, method = ci_for_cell(samples)
-            w.writerow([solver, sched, len(samples),
+            w.writerow([solver, sched, nproc, len(samples),
                         f"{mean:.3f}", f"{lo:.3f}", f"{hi:.3f}", method])
 
     with args.out_tests.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["solver", "metric", "comparison", "n_pairs",
+        w.writerow(["solver", "np", "metric", "comparison", "n_pairs",
                     "mean_baseline", "mean_variant", "gain_pct",
                     "t_stat", "t_p", "wilcoxon_p"])
-        solvers = sorted({s for (s, _) in groups})
-        for solver in solvers:
+        # One comparison block per (solver, np) so the N=32 scaling cohort is
+        # tested against its own baseline, never mixed with the N=16 table.
+        configs = sorted({(s, n) for (s, _, n) in groups})
+        for solver, nproc in configs:
             for label, base_sched, var_sched in COMPARISONS:
-                base = sorted(groups.get((solver, base_sched), []), key=lambda r: r["rep"])
-                var = sorted(groups.get((solver, var_sched), []), key=lambda r: r["rep"])
+                base = sorted(groups.get((solver, base_sched, nproc), []), key=lambda r: r["rep"])
+                var = sorted(groups.get((solver, var_sched, nproc), []), key=lambda r: r["rep"])
                 base_s = [r[args.metric] for r in base if r.get(args.metric) is not None]
                 var_s = [r[args.metric] for r in var if r.get(args.metric) is not None]
                 res = paired_tests(base_s, var_s)
-                w.writerow([solver, args.metric, label, res["n_pairs"],
+                w.writerow([solver, nproc, args.metric, label, res["n_pairs"],
                             res["mean_baseline"], res["mean_variant"], res["gain_pct"],
                             res["t_stat"], res["t_p"], res["wilcoxon_p"]])
 
