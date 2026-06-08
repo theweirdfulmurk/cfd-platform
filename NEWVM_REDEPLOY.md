@@ -1,8 +1,20 @@
-# New-VM redeploy checklist (400 GB, 36 nodes)
+# New-VM redeploy checklist (500 GB, 36 nodes)
 
-Captures everything learned bringing all 3 solvers up multi-node. Old VM was
-destroyed for a 400 GB / 36-node rebuild (36 nodes = 12/zone, needed for the
-np=32 scaling cohort; 400 GB fits all 3 solver images × 36 nodes + transient).
+Captures everything learned bringing all 3 solvers up multi-node.
+
+## DISK — MEASURED, READ THIS FIRST
+The 388 GB VM **wedged** loading the 3rd image: containerd stalled on disk I/O at
+91 %. Measured real footprint (NOT the docker `.Size`): **all 3 solver images =
+8.7 GB per node** (`du /var/lib/containerd` on a loaded node). Budget for 36 workers:
+- base cluster (37 nodes, no solvers): ~53 GB
+- 3 images × 36 (solver-delta ~7.3 GB/node): ~263 GB → **~316 GB steady**
+- transient during a `kind load` (unpack): +~35 GB → **~351 GB peak**
+- experiment PVC data (radioss restarts ~1 GB/run + results): +~20–40 GB
+- **realistic peak ~370–390 GB** → 388 GB is right at the edge (why it stalled).
+
+**500 GB → ~110–130 GB headroom. All 3 images resident, no per-phase juggling.**
+Also verified: CPU need = 4 + 2×36 = **76 vCPU**; RAM worst case (codeaster np=32,
+memjeveux 2 GB × 32 + ~20 GB base) ≈ **84 GB** (98 GB ok for sslv155a, 128 GB safer).
 
 ## 0. Prereqs
 - SSH into the new VM. Copy the repo over (`scp -r` local `cfd-platform/` or
@@ -17,22 +29,29 @@ ZONE_SIZE=12 scripts/cluster-up.sh      # 36 workers (12 a / 12 b / 12 c) + nete
 Netem RTT model unchanged: intra 0.5 / a-b 5 / b-c 5 / a-c 10 ms (in cluster-up.sh `rtt_ms()`).
 Zone label = `topology.kubernetes.io/zone`.
 
-## 2. Build + load images (per-phase friendly; ~4 GB each unpacked × 36)
+## 2. Build + load images (SEQUENTIAL, with df-guard between each)
+On 500 GB all 3 fit, but ALWAYS load one at a time and check `df` — never fire all
+3 `kind load`s at once (that overlaps the transient unpack and spikes disk).
 ```bash
 # backend (Go, multi-stage) — has ALL the fixes in this repo
 docker build -t cfd-platform-backend:local backend/ && kind load docker-image cfd-platform-backend:local --name cfd
 kubectl rollout restart deploy/cfd-platform-backend -n cfd-platform
 
-# openfoam — published image works as-is
-docker pull ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest && kind load docker-image ghcr.io/theweirdfulmurk/cfd-platform-openfoam:latest --name cfd
-
-# radioss — MUST build the overlay (adds libcrypt.so.1 via libxcrypt-compat + sshd)
+# radioss — MUST build the overlay first (adds libcrypt.so.1 via libxcrypt-compat + sshd).
+# The published ghcr radioss image is BROKEN (no libcrypt.so.1) — pods would pull it.
 docker build -f docker/openradioss/overlay.Dockerfile -t ghcr.io/theweirdfulmurk/cfd-platform-openradioss:latest .
-kind load docker-image ghcr.io/theweirdfulmurk/cfd-platform-openradioss:latest --name cfd
+docker run --rm --entrypoint bash ghcr.io/theweirdfulmurk/cfd-platform-openradioss:latest -lc 'ldconfig -p | grep libcrypt.so.1'  # must print
 
-# codeaster — published image is the full MPI build (PETSc/parallel MUMPS/ParMETIS); works as-is
-docker pull ghcr.io/theweirdfulmurk/cfd-platform-codeaster:latest && kind load docker-image ghcr.io/theweirdfulmurk/cfd-platform-codeaster:latest --name cfd
+# load one image, CHECK DISK, then the next:
+for img in openfoam openradioss codeaster; do
+  kind load docker-image ghcr.io/theweirdfulmurk/cfd-platform-$img:latest --name cfd
+  df -h /            # confirm free space is NOT dropping toward <50 GB before the next
+done
+# (openfoam + codeaster published images work as-is; only radioss needs the overlay.)
 ```
+If disk ever gets tight: per-phase — keep only the current solver's image on nodes,
+`crictl rmi` the others between run_benchmark solver phases (it runs all-openfoam,
+then all-radioss, then all-codeaster, so only one image is needed at a time).
 
 ## 3. Fixtures → /root/cases/
 - `openfoam.tar.gz` — motorBike (restore from backup or re-fetch the OpenFOAM tutorial).
@@ -80,9 +99,9 @@ cd experiment && python3 run_benchmark.py --backend http://localhost:8088 --case
    backend's `mpirun python3 fort.1` cross-pod path is unverified (mirrors radioss). Smoke it.
 2. **codeaster extraction** — `medpartitioner --input-file=*.med` + extract_codeaster_graph.py
    on sslv155a's mesh → must emit a valid edgelist for the scheduler.
-3. **Disk during loads** — 4 GB × 36 nodes × 3 ≈ 430 GB?? Recheck: codeaster unpacked
-   ~1.9 GB/node × 36 = 68 GB, all 3 ≈ 143 GB + base. Watch `df -h /` during kind loads;
-   if tight, load per-phase (gc unused solver image before loading the next).
+3. **Disk** — settled (see "DISK — MEASURED" at top): 8.7 GB/node for all 3 images,
+   ~370–390 GB realistic peak on 36 nodes → use a 500 GB VM. Load images SEQUENTIALLY
+   with `df` between each (§2); per-phase gc is the fallback if ever tight.
 
 ## METRIC (decided)
 Primary = **model communication cost** (hop-bytes/congestion = the QAP objective, from
