@@ -206,7 +206,27 @@ LOW:
 - realRange post-render flash (= тот же useMemo-фикс).
 - webglError залипал на весь mount. ФИКС: setWebglError(false) в load-эффекте.
 
-## Статус: КОД НАПИСАН + АУДИРОВАН, НЕ ЗАДЕПЛОЕН (2026-06-06)
+## Статус 2026-06-07: ЗАДЕПЛОЕНО, ВСЕ 3 ВЬЮВЕРА РЕНДЕРЯТ РЕАЛЬНЫЕ ДАННЫЕ
+
+Новая VM (`ssh -p 52194 root@202.215.136.222`), кластер 25 нод + netem, backend+
+frontend задеплоены. Подтверждено в браузере (скриншоты):
+- **OpenFOAM** motorBike — кинематическое давление, живой расчёт во фронте.
+- **OpenRadioss** Yaris crash — von Mises (красная зона смятия), пластика, 250мм.
+  Yaris LS-Dyna .key реально считается в OpenRadioss (`*CONTROL_UNITS` mm-s-tonne;
+  MPI -np16; image нужен `libxcrypt-compat` — фикс в Dockerfile+overlay; anim_to_vtk
+  из релиза; meshio не читает anim VTK → `read_legacy_vtk` fallback).
+- **Code_Aster** forma01a — von Mises на пластине с отверстием. Solve E2E через
+  прямой `python3 fort.1` (мимо as_run), только нодальные поля (SIEQ_NOEU/DEPL).
+Фиксы раскраски: активные скаляры (`setScalars`) + перцентильный диапазон p2–p98
+(`colorRange`) — иначе локальные пики смывают поле. Единицы конфигурируемы (модель-
+зависимы): `result_to_vtp --stress-scale/--disp-scale/...`.
+
+Полный handoff + рецепты: память `project_thesis_k8s_scheduler.md` (блок 2026-06-07
+LATE) + `reference_solver_result_fields.md`.
+
+NEXT = эксперимент 54+18 (GATED). Анимация во вьювере — отложена.
+
+## Статус (история): КОД НАПИСАН + АУДИРОВАН, НЕ ЗАДЕПЛОЕН (2026-06-06)
 
 Реализация по плану написана и проходит проверки (`go build`+`go vet` rc=0,
 фронт `tsc --noEmit` rc=0). В кластере **ничего не пересобрано/не задеплоено** —
