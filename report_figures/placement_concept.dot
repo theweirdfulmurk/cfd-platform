@@ -1,0 +1,58 @@
+// placement_concept.dot
+digraph placement_concept {
+  fontname="DejaVu Sans";
+  rankdir=TB;
+  nodesep=0.7;
+  ranksep=0.9;
+  forcelabels=true;
+
+  node [fontname="DejaVu Sans", fontsize=11, shape=circle, fixedsize=true, width=0.6,
+        style="filled", fillcolor="#f2f2f2", color=black];
+  edge [fontname="DejaVu Sans", fontsize=11, color=black];
+
+  subgraph cluster_left {
+    label="Без учёта топологии"; fontname="DejaVu Sans"; fontsize=12; color=black; style="rounded";
+
+    subgraph cluster_lz1 {
+      label="Зона a"; fontname="DejaVu Sans"; fontsize=10; style=dotted; color=black;
+      L1 [label="ранг 1"];
+      L3 [label="ранг 3"];
+    }
+    subgraph cluster_lz2 {
+      label="Зона c"; fontname="DejaVu Sans"; fontsize=10; style=dotted; color=black;
+      L2 [label="ранг 2"];
+      Lmid [shape=point, width=0.01, style=invis];
+      L4 [label="ранг 4"];
+      L2 -> Lmid [style=invis];
+      Lmid -> L4 [style=invis];
+      { rank=same; L2; Lmid; L4; }
+    }
+    L1 -> L2 [dir=none, penwidth=2.0, xlabel=" 10 мс "];
+    L3 -> L4 [dir=none, penwidth=1.0, style=dotted];
+    Lnote [label="интенсивно общающиеся ранги разнесены;\nстоимость обмена высокая",
+           shape=plaintext, fixedsize=false, style="", fontsize=11];
+    Lmid -> Lnote [style=invis];
+  }
+
+  subgraph cluster_right {
+    label="С учётом топологии (Мюллер-Мербах)"; fontname="DejaVu Sans"; fontsize=12; color=black; style="rounded";
+
+    subgraph cluster_rz1 {
+      label="Зона a"; fontname="DejaVu Sans"; fontsize=10; style=dotted; color=black;
+      R1 [label="ранг 1"];
+      R3 [label="ранг 3"];
+      R2 [label="ранг 2"];
+      Rmid [shape=point, width=0.01, style=invis];
+      R4 [label="ранг 4"];
+      R2 -> Rmid [style=invis];
+      Rmid -> R4 [style=invis];
+      { rank=same; R2; Rmid; R4; }
+      R1 -> R2 [dir=none, penwidth=2.0, label="   0,5 мс"];
+      R3 -> R4 [dir=none, penwidth=1.0, style=dotted];
+    }
+    Rnote [label="ранги упакованы;\nстоимость обмена низкая",
+           shape=plaintext, fixedsize=false, style="", fontsize=11];
+    Rmid -> Rnote [style=invis];
+  }
+}
+// dot -Tpdf placement_concept.dot -o placement_concept.pdf

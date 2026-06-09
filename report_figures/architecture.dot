@@ -1,0 +1,30 @@
+// architecture.dot
+digraph architecture {
+  rankdir=TB;
+  fontname="DejaVu Sans";
+  ranksep=0.85;
+  nodesep=0.6;
+
+  node [fontname="DejaVu Sans", fontsize=11, shape=box,
+        style="rounded,filled", fillcolor="#f2f2f2", color=black];
+  edge [fontname="DejaVu Sans", fontsize=10, color=black];
+
+  user    [label="Пользователь / программный оркестратор"];
+  server  [label="Серверное приложение (Go, chi):\nдвухфазная оркестрация — сначала Job извлечения, затем MPIJob;\nтипизированный и динамический клиенты Kubernetes"];
+  mpiop   [label="kubeflow MPI Operator\n(MPIJob: под-координатор и N рабочих подов)"];
+  sched   [label="topology-aware-scheduler\n(kube-scheduler, HTTP-расширение /prioritize;\nтри алгоритма размещения; читает F(i,j) и L(a,b))",
+           peripheries=2];
+  solvers [label="Поды-решатели: OpenFOAM / OpenRadioss / Code_Aster\n(libmpiP.so через LD_PRELOAD)"];
+  storage [label="Общие тома (ReadWriteMany):\nsimulation-configs, simulation-results, scheduler-graphs",
+           shape=cylinder];
+
+  user    -> server  [label="  HTTP REST, архив .tar.gz"];
+  server  -> mpiop   [label="  client-go"];
+  server  -> sched   [label="  client-go"];
+  { rank=same; mpiop; sched; }
+  mpiop   -> solvers [label="  развёртывает поды"];
+  sched   -> solvers [label="  выбор узлов", style=dashed];
+  solvers -> storage [dir=both, style=dotted, label="  чтение и запись"];
+  storage -> sched   [label="  F(i,j)", style=dashed, constraint=false];
+}
+// dot -Tpdf architecture.dot -o architecture.pdf

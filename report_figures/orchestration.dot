@@ -1,0 +1,41 @@
+// orchestration.dot
+digraph orchestration {
+  rankdir=TB;
+  fontname="DejaVu Sans";
+  ranksep=0.6;
+  nodesep=0.45;
+
+  node [fontname="DejaVu Sans", fontsize=11, shape=box,
+        style="rounded,filled", fillcolor="#f2f2f2", color=black];
+  edge [fontname="DejaVu Sans", fontsize=10, color=black];
+
+  user    [label="Пользователь / оркестратор"];
+  accept  [label="Серверное приложение: приём, проверка состава,\nраспаковка в общее хранилище"];
+
+  subgraph cluster_p1 {
+    label="Фаза 1"; labeljust="l"; fontname="DejaVu Sans"; fontsize=12; color=black; style="rounded";
+    extract [label="Задача (Job) на образе решателя:\ndecomposePar / Starter+METIS / medpartitioner;\nрезультат — список рёбер F(i,j)"];
+    edgelist [label="<id>.edgelist в хранилище графов", shape=cylinder, style="filled", fillcolor="#f2f2f2"];
+    extract -> edgelist;
+  }
+
+  barrier [label="Барьер: ожидание завершения фазы 1", shape=box, style="rounded,filled,dashed", fillcolor="#f2f2f2"];
+
+  subgraph cluster_p2 {
+    label="Фаза 2"; labeljust="l"; fontname="DejaVu Sans"; fontsize=12; color=black; style="rounded";
+    mpijob [label="MPIJob: под-координатор и N рабочих"];
+    place  [label="размещение рангов —\ntopology-aware-scheduler\nпо F(i,j) и L(a,b)", shape=note, style="filled", fillcolor="#f2f2f2"];
+    mpijob -> place [dir=none, style=dashed, constraint=false];
+  }
+
+  run     [label="Параллельный расчёт решателя\nи профилирование mpiP (LD_PRELOAD)"];
+  results [label="Результаты и профиль MPI в общем хранилище;\nвыдача состояний", shape=cylinder, style="filled", fillcolor="#f2f2f2"];
+
+  user    -> accept  [label="  POST, архив .tar.gz"];
+  accept  -> extract;
+  edgelist -> barrier;
+  barrier -> mpijob;
+  mpijob  -> run;
+  run     -> results;
+}
+// dot -Tpdf orchestration.dot -o orchestration.pdf

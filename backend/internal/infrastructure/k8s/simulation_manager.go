@@ -96,15 +96,17 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 		// as OpenRadioss's scratch isolation). mpiP is NOT preloaded: like the
 		// OpenRadioss Fortran engine it corrupts MPI_Comm_size (Fortran/C PMPI
 		// name-mangling), making code_aster see the wrong process count.
-		// orte_keep_fqdn_hostnames keeps the resolvable worker FQDN. Fixture:
-		// study.comm + mesh.med; the bootstrap imports are prepended (legacy
-		// test comms omit them) and the mesh is exposed on unit 20 (fort.20).
-		// NOTE: single-container MPI (as_run, np=16) is verified OK; the
-		// cross-pod python3 path here mirrors OpenRadioss and must be smoke-
-		// tested on first deploy.
+		// We do NOT pass --mca orte_keep_fqdn_hostnames: the MPI Operator
+		// hostfile lists `<pod>.<job>.<ns>.svc` (no .cluster.local), so keeping
+		// the FQDN makes ORTE try to resolve a partial name that has no DNS
+		// record — daemon launch fails. Letting ORTE strip to the short pod
+		// hostname resolves via the pod resolv.conf search domain, exactly like
+		// the working OpenFOAM/OpenRadioss jobs. Fixture: study.comm + mesh.med;
+		// the bootstrap imports are prepended (legacy test comms omit them) and
+		// the mesh is exposed on unit 20 (fort.20).
 		caseComm := caseDir + "/study.comm"
 		caseMesh := caseDir + "/mesh.med"
-		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 --mca orte_keep_fqdn_hostnames 1 -x PATH -x LD_LIBRARY_PATH -np %d bash -lc '. /aster/aster/share/aster/profile.sh; rm -rf /tmp/ca && mkdir -p /tmp/ca && cd /tmp/ca; { echo \"from code_aster.Commands import *\"; echo \"from code_aster.Cata.Syntax import _F\"; cat %s; } > fort.1; ln -sf %s fort.20; python3 fort.1 --memjeveux=2048 --tpmax=3600 --rep_outils=/aster/asrun/outils --rep_mat=/aster/aster/share/aster/materiau --rep_dex=/aster/aster/share/aster/datg --numthreads=1'", np, caseComm, caseMesh)
+		run = fmt.Sprintf("for h in $(awk '{print $1}' /etc/mpi/hostfile 2>/dev/null); do n=0; until getent hosts \"$h\" >/dev/null 2>&1 || [ $n -ge 120 ]; do sleep 1; n=$((n+1)); done; done; mpirun --allow-run-as-root --mca routed radix --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl self,tcp --mca pml ob1 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -x PYTHONPATH -np %d bash -lc '. /aster/aster/share/aster/profile.sh; rm -rf /tmp/ca && mkdir -p /tmp/ca && cd /tmp/ca; { echo \"from code_aster.Commands import *\"; echo \"from code_aster.Cata.Syntax import _F\"; echo \"from math import *\"; cat %s; } > fort.1; ln -sf %s fort.20; python3 fort.1 --memjeveux=2048 --tpmax=3600 --rep_outils=/aster/asrun/outils --rep_mat=/aster/aster/share/aster/materiau --rep_dex=/aster/aster/share/aster/datg --numthreads=1'", np, caseComm, caseMesh)
 	default:
 		return nil
 	}
@@ -140,10 +142,18 @@ func extractionCommand(t domain.SimulationType, simID, configPath string, np int
 
 	switch t {
 	case domain.SimTypeOpenFOAM:
+		// The motorBike tutorial ships decomposeParDict.6 / -random but no
+		// bare system/decomposeParDict, and the subdomain count must equal np
+		// (a per-job parameter). Write a minimal scotch dict so one
+		// decomposition feeds both the F-graph extraction here and the
+		// simpleFoam -parallel run, which reads the processor* dirs off the
+		// shared PVC.
 		return []string{
 			"/bin/bash", "-lc",
-			fmt.Sprintf("set -e && cd %s && decomposePar -force && "+
-				"extract-openfoam-graph . > %s", caseDir, edgelist),
+			fmt.Sprintf("set -e && cd %s && "+
+				"{ echo 'FoamFile { version 2.0; format ascii; class dictionary; object decomposeParDict; }'; "+
+				"echo 'numberOfSubdomains %d;'; echo 'method scotch;'; } > system/decomposeParDict && "+
+				"decomposePar -force && extract-openfoam-graph . > %s", caseDir, np, edgelist),
 		}
 	case domain.SimTypeOpenRadioss:
 		// The starter input deck differs by case origin: native OpenRadioss
@@ -167,15 +177,21 @@ func extractionCommand(t domain.SimulationType, simID, configPath string, np int
 				caseDir, np, np, np, edgelist),
 		}
 	case domain.SimTypeCodeAster:
+		// The image ships the low-level MED library + METIS CLI but NOT
+		// MEDCoupling/medpartitioner, so the designed joints route can't run.
+		// Build F(i,j) from shared nodes after an mpmetis element partition
+		// (assets/extract_codeaster_graph_metis.py). The script is embedded in
+		// the backend, not baked into the Code_Aster image, so it is written to
+		// /tmp here. profile.sh puts the `med` Python binding on PYTHONPATH;
+		// mpmetis lives in /aster/metis/bin.
+		writeScript := "cat > /tmp/extract_ca.py <<'CAEOF'\n" + codeasterExtractScript + "\nCAEOF\n"
+		runScript := fmt.Sprintf("python3 /tmp/extract_ca.py "+
+			"--input \"$(ls *.med | head -1)\" --ndomains %d --output %s", np, edgelist)
 		return []string{
 			"/bin/bash", "-lc",
-			fmt.Sprintf("set -e && cd %s && "+
-				"mkdir -p parts && "+
-				"medpartitioner --input-file=*.med --output-file=parts/part "+
-				"--ndomains=%d --create-boundary-faces --plain-master && "+
-				"python3 /opt/scripts/extract_codeaster_graph.py "+
-				"--parts-dir parts/ --ndomains %d > %s",
-				caseDir, np, np, edgelist),
+			"set -e && . /aster/aster/share/aster/profile.sh && " +
+				"export PATH=\"$PATH:/aster/metis/bin\" && cd " + caseDir + " && " +
+				writeScript + runScript,
 		}
 	}
 	return nil

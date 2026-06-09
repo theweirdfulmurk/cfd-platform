@@ -1,0 +1,41 @@
+// cluster_zones.dot
+digraph cluster_zones {
+  compound=true;
+  fontname="DejaVu Sans";
+  rankdir=LR;
+  nodesep=0.18;
+  ranksep=0.85;
+
+  node [fontname="DejaVu Sans", fontsize=10, shape=circle, fixedsize=true, width=0.42,
+        style="filled", fillcolor="#f2f2f2", color=black];
+  edge [fontname="DejaVu Sans", fontsize=10, color=black];
+
+  // Узлы внутри зоны стоят вертикальным столбиком (rank=same) — зона узкая.
+  subgraph cluster_a {
+    label="Зона a (12 узлов)"; fontname="DejaVu Sans"; fontsize=11; color=black; style="rounded";
+    a1; a2; a3;
+    { rank=same; a1; a2; a3; }
+    a1 -> a2 [dir=none, style=dotted, constraint=false, label="0,5 мс"];
+    a2 -> a3 [dir=none, style=dotted, constraint=false];
+  }
+  subgraph cluster_b {
+    label="Зона b (12 узлов)"; fontname="DejaVu Sans"; fontsize=11; color=black; style="rounded";
+    b1; b2; b3;
+    { rank=same; b1; b2; b3; }
+    b1 -> b2 [dir=none, style=dotted, constraint=false];
+    b2 -> b3 [dir=none, style=dotted, constraint=false];
+  }
+  subgraph cluster_c {
+    label="Зона c (12 узлов)"; fontname="DejaVu Sans"; fontsize=11; color=black; style="rounded";
+    c1; c2; c3;
+    { rank=same; c1; c2; c3; }
+    c1 -> c2 [dir=none, style=dotted, constraint=false];
+    c2 -> c3 [dir=none, style=dotted, constraint=false];
+  }
+
+  // зона-к-зоне (ltail/lhead обрезают ребро к рамке зоны, не к узлу)
+  a2 -> b2 [dir=none, ltail=cluster_a, lhead=cluster_b, label="5 мс", penwidth=1.4];
+  b2 -> c2 [dir=none, ltail=cluster_b, lhead=cluster_c, label="5 мс", penwidth=1.4];
+  a3 -> c3 [dir=none, ltail=cluster_a, lhead=cluster_c, label="10 мс", style=dashed, penwidth=1.4, constraint=false];
+}
+// dot -Tpdf cluster_zones.dot -o cluster_zones.pdf
