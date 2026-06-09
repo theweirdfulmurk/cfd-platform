@@ -91,9 +91,12 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 		// NOT via as_run, which does its OWN local mpiexec and would not
 		// distribute ranks across the kubeflow worker pods (the whole point of
 		// the experiment). The MPIJob mpirun places one rank per worker pod;
-		// each runs in a POD-LOCAL dir so the per-rank JEVEUX base cannot collide
-		// on the shared PVC (the JEVEUX_41 "VOLATILE" error — same class of fix
-		// as OpenRadioss's scratch isolation). mpiP is NOT preloaded: like the
+		// each runs in a POD-LOCAL, PER-RANK dir (/tmp/ca/proc.$rank) so the
+		// per-rank JEVEUX base/fort.* cannot collide — both across pods on the
+		// shared PVC AND between ranks that land in the same pod (np > #pods or
+		// local runs), where a shared /tmp/ca + rm -rf/mkdir would race. Each
+		// rank only touches its own subdir; mkdir -p creates the shared parent
+		// idempotently. mpiP is NOT preloaded: like the
 		// OpenRadioss Fortran engine it corrupts MPI_Comm_size (Fortran/C PMPI
 		// name-mangling), making code_aster see the wrong process count.
 		// We do NOT pass --mca orte_keep_fqdn_hostnames: the MPI Operator
@@ -104,9 +107,17 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 		// the working OpenFOAM/OpenRadioss jobs. Fixture: study.comm + mesh.med;
 		// the bootstrap imports are prepended (legacy test comms omit them) and
 		// the mesh is exposed on unit 20 (fort.20).
+		//
+		// We invoke the launcher by ABSOLUTE path /aster/openmpi/bin/mpirun
+		// (our OpenMPI 4.1.6). In this image gmsh/grace drag in apt's OpenMPI
+		// 2.1.1 and profile.sh's PATH order would otherwise make bare `mpirun`
+		// resolve to the 2.1.1 binary, whose pmix112 launcher talks to our
+		// 4.1.6-linked ranks and fails with "PMIX UNPACK-PAST-END" /
+		// "MPI_Init on a NULL communicator". (The image build now also purges
+		// openmpi-bin, but the absolute path is the robust belt-and-suspenders.)
 		caseComm := caseDir + "/study.comm"
 		caseMesh := caseDir + "/mesh.med"
-		run = fmt.Sprintf("for h in $(awk '{print $1}' /etc/mpi/hostfile 2>/dev/null); do n=0; until getent hosts \"$h\" >/dev/null 2>&1 || [ $n -ge 120 ]; do sleep 1; n=$((n+1)); done; done; mpirun --allow-run-as-root --mca routed radix --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl self,tcp --mca pml ob1 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -x PYTHONPATH -np %d bash -lc '. /aster/aster/share/aster/profile.sh; rm -rf /tmp/ca && mkdir -p /tmp/ca && cd /tmp/ca; { echo \"from code_aster.Commands import *\"; echo \"from code_aster.Cata.Syntax import _F\"; echo \"from math import *\"; cat %s; } > fort.1; ln -sf %s fort.20; python3 fort.1 --memjeveux=2048 --tpmax=3600 --rep_outils=/aster/asrun/outils --rep_mat=/aster/aster/share/aster/materiau --rep_dex=/aster/aster/share/aster/datg --numthreads=1'", np, caseComm, caseMesh)
+		run = fmt.Sprintf("for h in $(awk '{print $1}' /etc/mpi/hostfile 2>/dev/null); do n=0; until getent hosts \"$h\" >/dev/null 2>&1 || [ $n -ge 120 ]; do sleep 1; n=$((n+1)); done; done; /aster/openmpi/bin/mpirun --allow-run-as-root --mca routed radix --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl self,tcp --mca pml ob1 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -x PYTHONPATH -np %d bash -lc '. /aster/aster/share/aster/profile.sh; d=/tmp/ca/proc.$OMPI_COMM_WORLD_RANK; rm -rf $d && mkdir -p $d && cd $d; { echo \"from code_aster.Commands import *\"; echo \"from code_aster.Cata.Syntax import _F\"; echo \"from math import *\"; cat %s; } > fort.1; ln -sf %s fort.20; python3 fort.1 --memjeveux=2048 --tpmax=3600 --rep_outils=/aster/asrun/outils --rep_mat=/aster/aster/share/aster/materiau --rep_dex=/aster/aster/share/aster/datg --numthreads=1'", np, caseComm, caseMesh)
 	default:
 		return nil
 	}
