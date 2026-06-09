@@ -12,7 +12,9 @@ def configure(self):
     self.env.LIB_BOOST = ['boost_python3']
     self.env.WAFBUILD_ENV = ['/aster/aster/lib/dummy.env']
 
-    self.env.append_value('LIBPATH', [       
+    self.env.append_value('LIBPATH', [
+        '/aster/openmpi/lib',
+        '/aster/scalapack/lib',
         '/aster/hdf5/lib',
         '/aster/med/lib',
         '/aster/metis/lib',
@@ -23,6 +25,16 @@ def configure(self):
         '/aster/tfel/lib',
     ])
 
+    # NOTE: do NOT add /aster/mumps_mpi/include_seq here. That directory is
+    # MUMPS's *sequential* libseq stub and ships a fake mpif.h with bogus MPI
+    # handle values (MPI_COMM_WORLD=9, MPI_MAX=15, MPI_SUM=26, ...). With it on
+    # the include path it shadows OpenMPI's real mpif.h (MPI_COMM_WORLD=0,
+    # MPI_MAX=1, MPI_SUM=3) during the Fortran build, so code_aster bakes in the
+    # wrong op constants. At runtime MPI_Op_f2c(15) -> NULL and MPI_Allreduce
+    # segfaults inside asmpi_allreduce_i during parallel elementary-matrix
+    # assembly (merime_/redetr_). The real OpenMPI mpif.h is supplied by the
+    # mpif90 wrapper, so only /aster/mumps_mpi/include (the real MUMPS headers)
+    # is needed here.
     self.env.append_value('INCLUDES', [
         '/aster/hdf5/include',
         '/aster/med/include',
@@ -30,7 +42,6 @@ def configure(self):
         '/aster/parmetis/include',
         '/aster/petsc/include',
         '/aster/mumps_mpi/include',
-        '/aster/mumps_mpi/include_seq',
         '/aster/scotch_mpi/include',
         '/aster/tfel/include'
     ])

@@ -36,7 +36,7 @@ RUN apt-get update -y && \
         zlib1g-dev bison flex libopenblas-dev \
         python3-dev python3-numpy \
         libboost-numpy-dev libboost-python-dev \
-        libopenmpi-dev libblacs-mpi-dev libscalapack-openmpi-dev \
+        bzip2 \
         gdb tk xterm gmsh grace git ssh ca-certificates && \
     locale-gen en_GB.UTF-8 en_US.UTF-8 fr_FR.UTF-8 && \
     update-locale LANG=en_US.UTF-8 LC_MESSAGES=POSIX
@@ -58,6 +58,34 @@ ENV VERSION_MUMPS=5.2.1_aster2
 ENV VERSION_PETSC=3.12.3_aster
 ENV VERSION_MISS3D=6.7_aster6
 ENV VERSION_ASRUN=2021.1.0
+ENV VERSION_OPENMPI=4.1.6
+ENV VERSION_SCALAPACK=2.1.0
+
+# -------- OpenMPI (from source) --------
+# Ubuntu 18.04 apt ships OpenMPI 2.1.1, whose ORTE/PMIx-1.2 modex deadlocks
+# (routed=direct) or yields unhealthy collectives (routed=radix) cross-pod
+# under the kubeflow MPI Operator — Code_Aster then segfaults in asmpi_check.
+# 4.1.x is exactly what the working OpenFOAM/OpenRadioss images use in this
+# cluster. --enable-mpi1-compatibility restores the MPI-1 symbols (MPI_Address,
+# MPI_Type_struct, MPI_Type_extent, MPI_LB/UB, MPI_Errhandler_create, ...) that
+# OpenMPI 4.0 removed and MUMPS/Code_Aster legacy Fortran still call.
+# --without-verbs/--without-ucx stop InfiniBand/RDMA probing in the pod (forces
+# the TCP BTL); --enable-orterun-prefix-by-default makes mpirun inject the
+# prefix for ssh-launched orted on the worker pods.
+WORKDIR ${TEMP_DIRECTORY}/openmpi
+RUN wget --no-check-certificate \
+        https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${VERSION_OPENMPI}.tar.bz2 \
+        -O ompi.tar.bz2 && \
+    tar xf ompi.tar.bz2 -C . --strip-components 1 && rm ompi.tar.bz2 && \
+    ./configure --prefix=${ASTER_DIRECTORY}/openmpi \
+        --enable-mpi1-compatibility \
+        --enable-orterun-prefix-by-default \
+        --enable-mpi-fortran=all \
+        --without-verbs --without-ucx --with-slurm=no && \
+    make -j$(nproc) all && make install && \
+    rm -rf ${TEMP_DIRECTORY}/openmpi
+ENV PATH=${ASTER_DIRECTORY}/openmpi/bin:${PATH}
+ENV LD_LIBRARY_PATH=${ASTER_DIRECTORY}/openmpi/lib:${LD_LIBRARY_PATH}
 
 # -------- HDF5 --------
 WORKDIR ${TEMP_DIRECTORY}/hdf5
@@ -149,6 +177,31 @@ RUN hg clone -r ${VERSION_SCOTCH} http://hg.code.sf.net/p/prereq/scotch scotch_s
         mkdir -p ${ASTER_DIRECTORY}/scotch_mpi && \
         make -j$(nproc) install prefix=${ASTER_DIRECTORY}/scotch_mpi
 
+# -------- ScaLAPACK + BLACS (from source) --------
+# Built BEFORE MUMPS: the aster MUMPS waf `configure --enable-mpi` probes for
+# scalapack and aborts ("Missing the scalapack library") if absent. apt
+# libscalapack-openmpi / libblacs-mpi were ABI-tied to OpenMPI 2.1.1 and are
+# gone; rebuild against our OpenMPI 4.1.6. ScaLAPACK 2.x bundles BLACS, so the
+# final link needs only -lscalapack. The blacs* symlinks are insurance for any
+# downstream link line that still names the old BLACS libs (same symbols).
+WORKDIR ${TEMP_DIRECTORY}/scalapack
+RUN wget --no-check-certificate \
+        https://github.com/Reference-ScaLAPACK/scalapack/archive/refs/tags/v${VERSION_SCALAPACK}.tar.gz \
+        -O scalapack.tar.gz && \
+    tar xf scalapack.tar.gz -C . --strip-components 1 && rm scalapack.tar.gz && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_INSTALL_PREFIX=${ASTER_DIRECTORY}/scalapack \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_C_COMPILER=mpicc -DCMAKE_Fortran_COMPILER=mpif90 \
+        -DBLAS_LIBRARIES=/usr/lib/x86_64-linux-gnu/libopenblas.so \
+        -DLAPACK_LIBRARIES=/usr/lib/x86_64-linux-gnu/libopenblas.so && \
+    make -j$(nproc) && make install && \
+    cd ${ASTER_DIRECTORY}/scalapack/lib && \
+    for n in libblacs libblacsCinit libblacsF77init; do ln -sf libscalapack.so $n.so; done && \
+    rm -rf ${TEMP_DIRECTORY}/scalapack
+ENV LD_LIBRARY_PATH=${ASTER_DIRECTORY}/scalapack/lib:${LD_LIBRARY_PATH}
+
 # -------- MUMPS (seq + MPI) --------
 # `waf build` defaults to nproc parallel jobs; MUMPS 5.2.1_aster2 has
 # undeclared module dependencies, so two jobs can race on the same
@@ -164,10 +217,10 @@ RUN hg clone -r ${VERSION_MUMPS} http://hg.code.sf.net/p/prereq/mumps mumps_seq 
         python3 ./waf configure --prefix=${ASTER_DIRECTORY}/mumps_seq && \
         python3 ./waf build -j1 && python3 ./waf install -j1 && \
     cd ../mumps_mpi && \
-        LIBPATH="${ASTER_DIRECTORY}/scotch_mpi/lib ${ASTER_DIRECTORY}/metis/lib ${ASTER_DIRECTORY}/parmetis/lib" \
+        LIBPATH="${ASTER_DIRECTORY}/scalapack/lib ${ASTER_DIRECTORY}/scotch_mpi/lib ${ASTER_DIRECTORY}/metis/lib ${ASTER_DIRECTORY}/parmetis/lib" \
         INCLUDES="${ASTER_DIRECTORY}/scotch_mpi/include ${ASTER_DIRECTORY}/metis/include ${ASTER_DIRECTORY}/parmetis/include" \
         python3 ./waf configure --enable-mpi --enable-openmp --enable-metis --enable-parmetis --enable-scotch \
-            --prefix=${ASTER_DIRECTORY}/mumps_mpi --install-tests && \
+            --prefix=${ASTER_DIRECTORY}/mumps_mpi && \
         python3 ./waf build -j1 && python3 ./waf install -j1
 
 # -------- PETSc (with mumps + ML + hypre + superlu) --------
@@ -179,8 +232,8 @@ RUN hg clone -r ${VERSION_PETSC} http://hg.code.sf.net/p/prereq/petsc petsc && \
             --with-ssl=0 --with-x=0 \
             --with-mumps-lib="-L${ASTER_DIRECTORY}/mumps_mpi/lib -lzmumps -ldmumps -lmumps_common -lpord -L${ASTER_DIRECTORY}/scotch_mpi/lib -lesmumps -lptscotch -lptscotcherr -lptscotcherrexit -lscotch -lscotcherr -lscotcherrexit -L${ASTER_DIRECTORY}/parmetis/lib -lparmetis -L${ASTER_DIRECTORY}/metis/lib -lmetis" \
             --with-mumps-include=${ASTER_DIRECTORY}/mumps_mpi/include \
-            --with-blas-lapack-lib="-lopenblas -llapack -lblacsCinit-openmpi -lblacsF77init-openmpi -lblacs-openmpi" \
-            --with-scalapack-lib="-lscalapack-openmpi" \
+            --with-blas-lapack-lib="-lopenblas" \
+            --with-scalapack-lib="-L${ASTER_DIRECTORY}/scalapack/lib -lscalapack" \
             --download-ml=${TEMP_DIRECTORY}/petsc/3rd/petsc-pkg-ml-e5040d11aa07.tar.gz \
             --download-hypre=${TEMP_DIRECTORY}/petsc/3rd/hypre-2.14.0.tar.gz \
             --download-superlu=${TEMP_DIRECTORY}/petsc/3rd/superlu-52fc55d0397e382f46bdc4fb77445d0e2f4181ea.tar.gz \
@@ -238,13 +291,17 @@ ENV PYPATH_MED="${PREREQ_PATH}/med/lib/python3.6/site-packages"
 ENV LIBPATH_METIS="${PREREQ_PATH}/metis/lib"        INCLUDES_METIS="${PREREQ_PATH}/metis/include"
 ENV LIBPATH_TFEL="${PREREQ_PATH}/tfel/lib"          INCLUDES_TFEL="${PREREQ_PATH}/tfel/include"
 ENV LIBPATH_SCOTCH="${PREREQ_PATH}/scotch_mpi/lib"  INCLUDES_SCOTCH="${PREREQ_PATH}/scotch_mpi/include"
-ENV LIBPATH_MUMPS="${PREREQ_PATH}/mumps_mpi/lib"    INCLUDES_MUMPS="${PREREQ_PATH}/mumps_mpi/include ${PREREQ_PATH}/mumps_mpi/include_seq"
+# include_seq is MUMPS's libseq stub: its fake mpif.h (MPI_SUM=26, MPI_MAX=15,
+# MPI_COMM_WORLD=9) shadows OpenMPI's real mpif.h and makes code_aster bake in
+# wrong MPI op handles -> MPI_Op_f2c -> NULL -> segfault in asmpi_allreduce on
+# >=2 ranks. Use only the real MPI MUMPS headers here.
+ENV LIBPATH_MUMPS="${PREREQ_PATH}/mumps_mpi/lib"    INCLUDES_MUMPS="${PREREQ_PATH}/mumps_mpi/include"
 ENV LIBPATH_PARMETIS="${PREREQ_PATH}/parmetis/lib"  INCLUDES_PARMETIS="${PREREQ_PATH}/parmetis/include"
 ENV LIBPATH_PETSC="${PREREQ_PATH}/petsc/lib"        INCLUDES_PETSC="${PREREQ_PATH}/petsc/include"
 ENV PYPATH_PETSC="${PREREQ_PATH}/petsc/lib"
 ENV PYPATH_ASRUN="${PREREQ_PATH}/asrun/lib/python3.6/site-packages"
-ENV LD_LIBRARY_PATH="${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_TFEL}:${LIBPATH_SCOTCH}:${LIBPATH_MUMPS}:${LIBPATH_PARMETIS}:${LIBPATH_PETSC}:${ASTER_DIRECTORY}/devtools/lib"
-ENV PATH="${PREREQ_PATH}/med/bin:${PREREQ_PATH}/tfel/bin/mfront-3.4.0:${PREREQ_PATH}/homard/bin:${PREREQ_PATH}/miss3d:${PREREQ_PATH}/asrun/bin:${PREREQ_PATH}/devtools/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${ASTER_DIRECTORY}/openmpi/lib:${ASTER_DIRECTORY}/scalapack/lib:${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_TFEL}:${LIBPATH_SCOTCH}:${LIBPATH_MUMPS}:${LIBPATH_PARMETIS}:${LIBPATH_PETSC}:${ASTER_DIRECTORY}/devtools/lib"
+ENV PATH="${PREREQ_PATH}/openmpi/bin:${PREREQ_PATH}/med/bin:${PREREQ_PATH}/tfel/bin/mfront-3.4.0:${PREREQ_PATH}/homard/bin:${PREREQ_PATH}/miss3d:${PREREQ_PATH}/asrun/bin:${PREREQ_PATH}/devtools/bin:${PATH}"
 ENV PYTHONPATH="${PYPATH_MED}:${PYPATH_PETSC}:${PYPATH_ASRUN}:${ASTER_DIRECTORY}/tfel/lib/python3.6/site-packages"
 ENV LINKFLAGS="${LINKFLAGS} -Wl,-rpath=${LD_LIBRARY_PATH}"
 ENV ENABLE_MPI=1
@@ -322,9 +379,15 @@ RUN apt-get update --fix-missing -y --no-install-recommends \
         zlib1g-dev bison flex \
         libopenblas-dev python3-dev python3-numpy \
         libboost-numpy-dev libboost-python-dev \
-        libopenmpi-dev libblacs-mpi-dev libscalapack-openmpi-dev \
         libunwind8 \
         gdb tk xterm gmsh grace ssh ca-certificates && \
+    # gmsh/grace pull in apt's OpenMPI 2.1.1 (libopenmpi2 + openmpi-bin). The
+    # binaries land in /usr/bin and, once profile.sh reorders PATH, shadow our
+    # /aster/openmpi/bin (4.1.6): bare `mpirun` then runs the 2.1.1 launcher
+    # (pmix112) against 4.1.6-linked ranks -> "PMIX UNPACK-PAST-END" /
+    # "MPI_Init on a NULL communicator". Drop just the binaries (keep the
+    # libopenmpi2 runtime lib gmsh needs) so `mpirun` resolves to 4.1.6.
+    apt-get purge -y openmpi-bin && apt-get autoremove -y && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
 
 ENV LANGUAGE=en_US.UTF-8 LANG=en_US.UTF-8 LC_MESSAGES=POSIX \
@@ -344,8 +407,8 @@ ENV LIBPATH_SCOTCH="${PREREQ_PATH}/scotch_mpi/lib"
 ENV LIBPATH_MUMPS="${PREREQ_PATH}/mumps_mpi/lib"
 ENV LIBPATH_PARMETIS="${PREREQ_PATH}/parmetis/lib"
 ENV LIBPATH_PETSC="${PREREQ_PATH}/petsc/lib"
-ENV LD_LIBRARY_PATH="${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_TFEL}:${LIBPATH_SCOTCH}:${LIBPATH_MUMPS}:${LIBPATH_PARMETIS}:${LIBPATH_PETSC}:${ASTER_DIRECTORY}/devtools/lib:/opt/mpiP/lib"
-ENV PATH="${PREREQ_PATH}/med/bin:${PREREQ_PATH}/tfel/bin/mfront-3.4.0:${PREREQ_PATH}/homard/bin:${PREREQ_PATH}/miss3d:${PREREQ_PATH}/asrun/bin:${PREREQ_PATH}/devtools/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${ASTER_DIRECTORY}/openmpi/lib:${ASTER_DIRECTORY}/scalapack/lib:${LIBPATH_HDF5}:${LIBPATH_MED}:${LIBPATH_METIS}:${LIBPATH_TFEL}:${LIBPATH_SCOTCH}:${LIBPATH_MUMPS}:${LIBPATH_PARMETIS}:${LIBPATH_PETSC}:${ASTER_DIRECTORY}/devtools/lib:/opt/mpiP/lib"
+ENV PATH="${PREREQ_PATH}/openmpi/bin:${PREREQ_PATH}/med/bin:${PREREQ_PATH}/tfel/bin/mfront-3.4.0:${PREREQ_PATH}/homard/bin:${PREREQ_PATH}/miss3d:${PREREQ_PATH}/asrun/bin:${PREREQ_PATH}/devtools/bin:${PATH}"
 ENV PYPATH_MED="${PREREQ_PATH}/med/lib/python3.6/site-packages"
 ENV PYPATH_ASRUN="${PREREQ_PATH}/asrun/lib/python3.6/site-packages"
 ENV PYPATH_PETSC="${PREREQ_PATH}/petsc/lib"
