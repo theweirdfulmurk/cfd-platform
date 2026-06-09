@@ -84,7 +84,14 @@ func solverCommand(t domain.SimulationType, simID, configPath string, np int) []
 		// still lands in /results via the absolute MPIP path, and the engine
 		// reads restart/deck through the symlinks. (simpleFoam/Code_Aster don't
 		// hit this — they don't do the create-then-read scratch dance.)
-		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'rm -rf /tmp/rad && mkdir -p /tmp/rad && cd /tmp/rad && ln -sf %s/* . && engine_linux64_gf_ompi -input *.rad'", np, caseDir)
+		//
+		// The engine writes its ANIM frames (<run>A001…, merged on the SPMD
+		// master) into that pod-local CWD, so they vanished with the pod and the
+		// result viewer had nothing to render. After the run, rank 0 copies the
+		// anim files back into the shared case dir on the PVC so the post-solve
+		// export (anim_to_vtk → result_to_vtp) can build a real crash surface.
+		// `rc=$?` + `exit $rc` preserves the engine's exit code for MPIJob status.
+		run = fmt.Sprintf("mpirun --allow-run-as-root --mca routed direct --mca plm_rsh_no_tree_spawn 1 --mca oob_tcp_if_include eth0 --mca btl_tcp_if_include eth0 -x PATH -x LD_LIBRARY_PATH -np %d bash -lc 'rm -rf /tmp/rad && mkdir -p /tmp/rad && cd /tmp/rad && ln -sf %s/* . && engine_linux64_gf_ompi -input *.rad; rc=$?; if [ \"${OMPI_COMM_WORLD_RANK:-0}\" = 0 ]; then cp -f *A[0-9][0-9][0-9]* %s/ 2>/dev/null; fi; exit $rc'", np, caseDir, caseDir)
 	case domain.SimTypeCodeAster:
 		// code_aster is launched by running the command file directly
 		// (`python3 fort.1`), the same invocation the working manual run used —
