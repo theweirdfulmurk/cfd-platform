@@ -15,6 +15,8 @@ export interface Simulation {
   CreatedAt: string;
   StartedAt?: string;
   CompletedAt?: string;
+  // Rank-to-zone distribution, e.g. "a:12|b:4" — the placement signature.
+  Zones?: string;
 }
 
 // Real result field descriptor written by the post-solve export step

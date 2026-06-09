@@ -417,10 +417,16 @@ export function Visualizer({ sim }: { sim: Simulation }) {
       `Решатель,${SOLVER_LABEL[sim.Type]}`,
       `Режим распределения,${algo.full}`,
       `Процессов MPI,${sim.NumProcs}`,
+      `Размещение по зонам,${sim.Zones || '—'}`,
       `Статус,${STATUS_META[sim.Status].label}`,
     ];
     if (sim.Status === 'completed') {
       rows.push(`Длительность,${duration(sim.StartedAt ?? sim.CreatedAt, sim.CompletedAt)}`);
+      const secs = sim.CompletedAt
+        ? Math.round((new Date(sim.CompletedAt).getTime() -
+            new Date(sim.StartedAt ?? sim.CreatedAt).getTime()) / 1000)
+        : 0;
+      if (secs > 0) rows.push(`Время счёта (с),${secs}`);
     }
     if (mode === 'real' && realFields && polyRef.current) {
       if (stats?.cells) rows.push(`Ячеек на поверхности,${stats.cells}`);

@@ -24,6 +24,11 @@ type Simulation struct {
 	CreatedAt     time.Time
 	StartedAt     *time.Time
 	CompletedAt   *time.Time
+	// Zones records how the ranks landed across availability zones, e.g.
+	// "a:12|b:4" — the observable signature of the placement decision (the
+	// topology-aware extender packs into one zone; random spreads). Empty when
+	// not captured.
+	Zones string
 }
 
 // SimulationType identifies the solver backing the simulation. The three
