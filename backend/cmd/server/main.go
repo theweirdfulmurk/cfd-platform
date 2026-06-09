@@ -26,7 +26,9 @@ func main() {
 	simK8sManager := k8s.NewSimulationManager(typed, dyn, namespace)
 
 	vizRepo := repository.NewInMemoryVisualizationRepo()
-	simRepo := repository.NewInMemorySimulationRepo()
+	// Persist the run index on the shared PVC (next to each case dir) so the
+	// listing survives a backend restart instead of living only in pod RAM.
+	simRepo := repository.NewInMemorySimulationRepo("/pvc/simulations/_index.json")
 
 	vizUseCase := usecase.NewVisualizationUseCase(vizRepo, vizK8sManager)
 	simUseCase := usecase.NewSimulationUseCase(simRepo, simK8sManager)

@@ -182,6 +182,13 @@ func (uc *SimulationUseCase) List() ([]*domain.Simulation, error) {
 		return nil, err
 	}
 	for _, sim := range sims {
+		// A finished run never changes state again, so skip the per-sim MPIJob
+		// Get for terminal sims. List() otherwise does one k8s API round-trip
+		// per simulation, making the listing O(N) slow (tens of seconds once a
+		// few dozen runs accumulate). Only pending/running sims need a live check.
+		if sim.Status == domain.SimStatusCompleted || sim.Status == domain.SimStatusFailed {
+			continue
+		}
 		if status, err := uc.k8sManager.GetJobStatus(sim.ID); err == nil && status != sim.Status {
 			sim.Status = status
 			if status == domain.SimStatusCompleted {
