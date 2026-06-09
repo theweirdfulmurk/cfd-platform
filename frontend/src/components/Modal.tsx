@@ -1,4 +1,5 @@
 import { useEffect, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { IconX } from './icons';
 import './Modal.css';
 
@@ -24,7 +25,12 @@ export function Modal({ title, onClose, children }: ModalProps) {
     };
   }, [onClose]);
 
-  return (
+  // Portal to <body>: a glassy ancestor (backdrop-filter) or any transformed
+  // ancestor becomes the containing block for our position:fixed backdrop,
+  // which pins it to that panel instead of the viewport — with a long list the
+  // dialog then drifts far down the page. Rendering at the body root escapes
+  // every such ancestor so the backdrop truly covers the viewport and centres.
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
@@ -40,6 +46,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
